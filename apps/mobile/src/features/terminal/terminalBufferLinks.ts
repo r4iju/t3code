@@ -19,14 +19,15 @@ const OSC_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?/g;
 const CSI_PATTERN = /\x1b\[[0-9;:?]*[ -/]*[@-~]/g;
 const ESC_CHARSET_PATTERN = /\x1b[()*+][0-9A-Za-z]/g;
 const ESC_SINGLE_PATTERN = /\x1b[@-Z\\-_]/g;
-// Everything below 0x20 except \n, plus DEL. \r and \r\n are normalized to \n
-// beforehand.
-const CONTROL_CHAR_PATTERN = /[\x00-\x09\x0b-\x1f\x7f]/g;
+// Everything below 0x20 except \n and \r, plus DEL. \r\n is normalized to \n
+// here; lone \r (line overwrite) is resolved per line during extraction.
+const CONTROL_CHAR_PATTERN = /[\x00-\x09\x0b-\x0c\x0e-\x1f\x7f]/g;
 /* eslint-enable no-control-regex */
 
 const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/g;
+const URL_SCHEME_PATTERN = /^https?:\/\//;
 const URL_CONTINUATION_PATTERN = /^[^\s"'`<>]+/;
-const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
+const TRAILING_PUNCTUATION_PATTERN = /[.,;!?…]+$/;
 
 /** Mirrors the web terminal's link cleanup (apps/web/src/terminal-links.ts). */
 function trimClosingDelimiters(value: string): string {
@@ -47,27 +48,30 @@ function trimClosingDelimiters(value: string): string {
   return output;
 }
 
-function extractOscHyperlinks(raw: string): string[] {
-  const urls: string[] = [];
-  OSC_HYPERLINK_PATTERN.lastIndex = 0;
-  for (const match of raw.matchAll(OSC_HYPERLINK_PATTERN)) {
-    const uri = match[1];
-    if (uri !== undefined && /^https?:\/\//.test(uri)) {
-      urls.push(uri);
-    }
-  }
-  return urls;
+function stripAnsi(raw: string): string {
+  return (
+    raw
+      // Inline OSC 8 hyperlink targets where the anchor starts, so they rank
+      // by buffer position like plain-text URLs.
+      .replace(OSC_HYPERLINK_PATTERN, (_sequence, uri: string) =>
+        URL_SCHEME_PATTERN.test(uri) ? ` ${uri} ` : "",
+      )
+      .replace(OSC_PATTERN, "")
+      .replace(CSI_PATTERN, "")
+      .replace(ESC_CHARSET_PATTERN, "")
+      .replace(ESC_SINGLE_PATTERN, "")
+      .replace(/\r\n/g, "\n")
+      .replace(CONTROL_CHAR_PATTERN, "")
+  );
 }
 
-function stripAnsi(raw: string): string {
-  return raw
-    .replace(OSC_PATTERN, "")
-    .replace(CSI_PATTERN, "")
-    .replace(ESC_CHARSET_PATTERN, "")
-    .replace(ESC_SINGLE_PATTERN, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(CONTROL_CHAR_PATTERN, "");
+/**
+ * A lone \r rewinds the cursor to overwrite the line (spinners, progress
+ * bars); keep only the final paint so truncated intermediates never surface
+ * as stale links.
+ */
+function resolveLineOverwrites(line: string): string {
+  return line.slice(line.lastIndexOf("\r") + 1);
 }
 
 /**
@@ -94,8 +98,10 @@ function joinWrappedUrl(
     if (nextLine === undefined) break;
     const continuation = URL_CONTINUATION_PATTERN.exec(nextLine)?.[0];
     // A wrap continuation is the line's only content; anything after a space
-    // is prose that happens to follow the URL.
+    // is prose that happens to follow the URL. A token that starts its own
+    // scheme is a separate adjacent URL, never a continuation.
     if (continuation === undefined || continuation !== nextLine.trimEnd()) break;
+    if (URL_SCHEME_PATTERN.test(continuation)) break;
 
     url += continuation;
     index += 1;
@@ -121,11 +127,10 @@ export function extractTerminalBufferLinks(buffer: string): string[] {
     }
   }
 
-  const oscUrls = extractOscHyperlinks(window);
   const text = stripAnsi(window);
-  const lines = text.split("\n");
+  const lines = text.split("\n").map(resolveLineOverwrites);
 
-  const ordered: string[] = [...oscUrls];
+  const ordered: string[] = [];
   for (const [lineIndex, line] of lines.entries()) {
     URL_PATTERN.lastIndex = 0;
     for (const match of line.matchAll(URL_PATTERN)) {
@@ -139,13 +144,11 @@ export function extractTerminalBufferLinks(buffer: string): string[] {
     }
   }
 
-  // Keep the last occurrence of each URL, and drop URLs that are prefixes of a
-  // longer one (spinner \r-redraws leave truncated duplicates behind).
+  // Keep the last occurrence of each URL, most recent first.
   const deduped: string[] = [];
   for (let index = ordered.length - 1; index >= 0; index -= 1) {
     const url = ordered[index];
-    if (url === undefined) continue;
-    if (deduped.some((existing) => existing.startsWith(url))) continue;
+    if (url === undefined || deduped.includes(url)) continue;
     deduped.push(url);
   }
 
