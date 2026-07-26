@@ -71,6 +71,10 @@ eas submit -p android --latest --profile personal # → Play internal testing
 No CI initially — releases are manual and occasional. If cadence grows, lift upstream's
 fingerprint-based EAS workflow (`.github/workflows/mobile-eas-*.yml`) into the fork.
 
+Before each release, review the exit-path register in
+[contributing-upstream.md](./contributing-upstream.md) — every feature delta on this fork
+must be moving toward upstream or have a written reason to stay.
+
 ## Server operations (decided with the map)
 
 The LAN server is the **desktop app with Settings → Connections → Network access toggled on**
