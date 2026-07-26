@@ -68,13 +68,39 @@ describe("extractTerminalBufferLinks", () => {
     ]);
   });
 
-  it("drops spinner-truncated prefixes of the same URL, keeping most recent first", () => {
+  it("keeps only the final \\r-overwritten paint of a line, most recent first", () => {
     const buffer =
       "https://example.com/oauth?state=ab\rhttps://example.com/oauth?state=abcdef\nDone. https://example.com/next\n";
     expect(extractTerminalBufferLinks(buffer)).toEqual([
       "https://example.com/next",
       "https://example.com/oauth?state=abcdef",
     ]);
+  });
+
+  it("does not join a separate URL printed on the next line after a full-width URL line", () => {
+    const buffer =
+      "Compare https://example.com/org/alpha-repository/tree/main\nhttps://example.com/org/beta\n";
+    expect(extractTerminalBufferLinks(buffer)).toEqual([
+      "https://example.com/org/beta",
+      "https://example.com/org/alpha-repository/tree/main",
+    ]);
+  });
+
+  it("keeps a URL that is a prefix of another, distinct URL", () => {
+    const buffer = "https://github.com/org/repo\nhttps://github.com/org/repo-utils\n";
+    expect(extractTerminalBufferLinks(buffer)).toEqual([
+      "https://github.com/org/repo-utils",
+      "https://github.com/org/repo",
+    ]);
+  });
+
+  it("ranks an OSC 8 link by buffer position, not behind plain-text URLs", () => {
+    const plain = Array.from({ length: 3 }, (_, index) => `https://example.com/${index}`).join(
+      "\n",
+    );
+    const buffer = `${plain}\nSign in: \x1b]8;;https://auth.example.com/latest\x1b\\here\x1b]8;;\x1b\\\n`;
+    const links = extractTerminalBufferLinks(buffer);
+    expect(links[0]).toBe("https://auth.example.com/latest");
   });
 
   it("caps results and prefers the most recent URLs", () => {
