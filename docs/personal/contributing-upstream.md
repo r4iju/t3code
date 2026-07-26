@@ -58,12 +58,48 @@ anything `size:L` or larger.
 
 Update this table whenever a delta is added, upstreamed, or consciously kept.
 
-| Delta                                                          | Fork commit      | Exit path                                                                                                                                                                                                                                                                                                                                                                                                                      | Status                           |
-| -------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
-| Terminal URL link chips (mobile)                               | `434407fad` (#6) | Upstream issue proposing the chip bar as an Android/mobile usability fix; web already has link handling (`apps/web/src/terminal-links.ts`), so pitch it as mobile parity. Offer a trimmed PR (extraction logic + bar, no fork-specific styling) if they bite.                                                                                                                                                                  | **Todo** — issue not yet filed   |
-| Android selectable message prose                               | `c5658279f` (#7) | Two-step: (1) PR the `selectable` prop to [react-native-nitro-markdown](https://github.com/JoaoPauloCMarra/react-native-nitro-markdown) (it already does this for code blocks; prose is a natural extension). (2) Once released, file a tiny t3code PR (~3 call-site words in `ThreadFeed.tsx`) and drop our pnpm patch on the version bump. Never send the pnpm patch upstream — that is what made closed PR #4549 `size:XL`. | **Todo** — lib PR not yet opened |
-| EAS identity hooks, `personal` submit profile, credentials dir | #2/#3/#5         | None — this _is_ the fork (env/config-only by design).                                                                                                                                                                                                                                                                                                                                                                         | **Keep, fork-only**              |
-| `docs/personal/*`                                              | —                | None — fork-local docs.                                                                                                                                                                                                                                                                                                                                                                                                        | **Keep, fork-only**              |
+| Delta                                                          | Fork commit                              | Exit path                                                                                                                                                                                                                                                                                                                                                                                                                      | Status                                                   |
+| -------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| Terminal URL link chips (mobile)                               | `434407fad` (#6), fixes `eaa6520c0` (#8) | See [playbook below](#ready-to-go-playbook-terminal-link-chips): issue first (mobile parity with `apps/web/src/terminal-links.ts`), then a trimmed PR cherry-picked from upstream/main.                                                                                                                                                                                                                                        | **Code ready** — needs device media, then file the issue |
+| Android selectable message prose                               | `c5658279f` (#7)                         | Two-step: (1) PR the `selectable` prop to [react-native-nitro-markdown](https://github.com/JoaoPauloCMarra/react-native-nitro-markdown) (it already does this for code blocks; prose is a natural extension). (2) Once released, file a tiny t3code PR (~3 call-site words in `ThreadFeed.tsx`) and drop our pnpm patch on the version bump. Never send the pnpm patch upstream — that is what made closed PR #4549 `size:XL`. | **Todo** — lib PR not yet opened                         |
+| EAS identity hooks, `personal` submit profile, credentials dir | #2/#3/#5                                 | None — this _is_ the fork (env/config-only by design).                                                                                                                                                                                                                                                                                                                                                                         | **Keep, fork-only**                                      |
+| `docs/personal/*`                                              | —                                        | None — fork-local docs.                                                                                                                                                                                                                                                                                                                                                                                                        | **Keep, fork-only**                                      |
+
+## Ready-to-go playbook: terminal link chips
+
+Everything below was worked out on 2026-07-26; when we decide to contribute, this is the
+whole remaining path.
+
+**Why it has a real shot.** Upstream merged this exact problem class on web twice — #17
+("terminal links") and #1913 ("Fix opening urls wrapped across lines in the terminal", from an
+_unvouched_ contributor, size L). Their mobile terminal files are identical to ours pre-delta,
+so the bug — claude CLI login is impossible from the phone terminal — exists for every mobile
+user of theirs, in a core flow. Pitch is "mobile parity with web link handling", not a feature.
+
+**Already done (don't redo):** pingdotgg#4549's bot review found three real extraction bugs
+(adjacent URLs joined, OSC 8 recency lost, prefix dedup hiding distinct URLs) — all fixed with
+regression tests in `eaa6520c0` (#8). Never send the pre-#8 version.
+
+**Remaining prerequisite:** on-device verification media per their CONTRIBUTING — screenshots
+(iOS + Android, light + dark) and a short video of `claude /login` → tap chip → browser opens.
+The `test-t3-mobile` flow produces these as a byproduct.
+
+**Then, in order:**
+
+1. File the issue (`--repo pingdotgg/t3code`): frame as the bug, attach the video, link our
+   fork commits as a working reference, and ask whether they'd prefer the chip bar or native
+   Ghostty `OPEN_URL` handling (`action_cb` stub in `T3TerminalView.swift`) before sending code.
+2. If they bite: branch from `upstream/main`, cherry-pick `434407fad` + `eaa6520c0`, squash to
+   one commit. The diff is exactly seven files: `terminalBufferLinks.ts` + test,
+   `TerminalLinkBar.tsx`, two-line wiring in `ThreadTerminalPanel.tsx` and
+   `ThreadTerminalRouteScreen.tsx`, one literal in `openExternalUrl.ts`. Nothing else — the
+   ride-alongs were what sank #4549.
+3. PR body must state: the native alternative and why we didn't take it (GPU-rendered text, no
+   native rebuild, no mouse-report side effects); the heuristic's limits (wrap-join assumes
+   ≥40 cols, http(s) only, 3 chips, 16 KB scan window); that the logic mirrors
+   `apps/web/src/terminal-links.ts` (offer shared-package unification as a follow-up question,
+   not preemptive scope); and a candid reference to #4549 ("opened against the wrong repo,
+   this is the properly scoped version with the review findings addressed").
 
 ## Slop-fork hygiene checklist
 
