@@ -8,7 +8,7 @@
  * workspace paths, and diff/files remain singleton surfaces.
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ChatFileAttachment, ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -39,11 +39,15 @@ export type RightPanelSurface =
   | { id: "diff"; kind: "diff" }
   | { id: "files"; kind: "files" }
   | {
-      id: `file:${string}`;
+      id: `file:${string}` | `attachment:${string}`;
       kind: "file";
+      /** Workspace-relative, or absolute for a host file outside the workspace. */
       relativePath: string;
       revealLine: number | null;
       revealRequestId: number;
+      /** Present when the file lives in the thread's attachment store rather
+          than at a workspace or host path. */
+      attachment?: ChatFileAttachment;
     }
   | {
       /**
@@ -52,6 +56,12 @@ export type RightPanelSurface =
        */
       id: `pull-request:${string}`;
       kind: "pull-request";
+      /**
+       * Which server the change request was read from. The list spans every connected one, so
+       * two of them can hold the same project id; a panel beside a thread leaves this out and
+       * takes the environment from its own ref.
+       */
+      environmentId?: string;
       projectId: string;
       repository: string;
       number: number;
@@ -84,9 +94,10 @@ interface RightPanelStoreState {
   ) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
+  openAttachment: (ref: ScopedThreadRef, attachment: ChatFileAttachment) => void;
   openPullRequest: (
     ref: ScopedThreadRef,
-    target: { projectId: string; repository: string; number: number },
+    target: { environmentId?: string; projectId: string; repository: string; number: number },
   ) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
@@ -150,6 +161,15 @@ const fileSurface = (
   revealRequestId,
 });
 
+const attachmentSurface = (attachment: ChatFileAttachment): RightPanelSurface => ({
+  id: `attachment:${attachment.id}`,
+  kind: "file",
+  relativePath: attachment.name,
+  revealLine: null,
+  revealRequestId: 0,
+  attachment,
+});
+
 const terminalSurface = (terminalId: string): RightPanelSurface => ({
   id: `terminal:${terminalId}`,
   kind: "terminal",
@@ -161,14 +181,20 @@ const terminalSurface = (terminalId: string): RightPanelSurface => ({
 export type PullRequestSurface = Extract<RightPanelSurface, { kind: "pull-request" }>;
 
 export function pullRequestSurfaceId(target: {
+  environmentId?: string;
   projectId: string;
   repository: string;
   number: number;
 }): PullRequestSurface["id"] {
-  return `pull-request:${encodeURIComponent(target.projectId)}:${encodeURIComponent(target.repository)}:${target.number}`;
+  // The environment leads the id where there is one, so the same change request read from two
+  // servers is two tabs rather than one tab that changes its mind about which server it is on.
+  const scope =
+    target.environmentId === undefined ? "" : `${encodeURIComponent(target.environmentId)}:`;
+  return `pull-request:${scope}${encodeURIComponent(target.projectId)}:${encodeURIComponent(target.repository)}:${target.number}`;
 }
 
 export function pullRequestSurface(target: {
+  environmentId?: string;
   projectId: string;
   repository: string;
   number: number;
@@ -176,6 +202,7 @@ export function pullRequestSurface(target: {
   return {
     id: pullRequestSurfaceId(target),
     kind: "pull-request",
+    ...(target.environmentId === undefined ? {} : { environmentId: target.environmentId }),
     projectId: target.projectId,
     repository: target.repository,
     number: target.number,
@@ -260,7 +287,14 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                       ) {
                         return [];
                       }
-                      return [pullRequestSurface(surface)];
+                      const { environmentId, ...rest } = surface;
+                      // Anything else stored under that name is not an environment.
+                      return [
+                        pullRequestSurface({
+                          ...rest,
+                          ...(typeof environmentId === "string" ? { environmentId } : {}),
+                        }),
+                      ];
                     }
                     if (surface.kind !== "terminal") return [surface];
                     if (
@@ -378,6 +412,18 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                   )
                 : [...withoutStandaloneExplorer, surface],
             };
+          }),
+        })),
+      openAttachment: (ref, attachment) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
+            const withoutStandaloneExplorer = current.surfaces.filter(
+              (surface) => surface.kind !== "files",
+            );
+            return upsertSurface(
+              { ...current, surfaces: withoutStandaloneExplorer },
+              attachmentSurface(attachment),
+            );
           }),
         })),
       openTerminal: (ref, terminalId) =>
@@ -556,7 +602,9 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
           byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) => {
             if (workspaceAvailable) return current;
             const surfaces = current.surfaces.filter(
-              (surface) => surface.kind !== "files" && surface.kind !== "file",
+              (surface) =>
+                surface.kind !== "files" &&
+                (surface.kind !== "file" || surface.attachment !== undefined),
             );
             if (surfaces.length === current.surfaces.length) return current;
             const activeStillExists = surfaces.some(
