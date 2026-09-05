@@ -90,10 +90,10 @@ The `test-t3-mobile` flow produces these as a byproduct.
    fork commits as a working reference, and ask whether they'd prefer the chip bar or native
    Ghostty `OPEN_URL` handling (`action_cb` stub in `T3TerminalView.swift`) before sending code.
 2. If they bite: branch from `upstream/main`, cherry-pick `434407fad` + `eaa6520c0`, squash to
-   one commit. The diff is exactly seven files: `terminalBufferLinks.ts` + test,
-   `TerminalLinkBar.tsx`, two-line wiring in `ThreadTerminalPanel.tsx` and
-   `ThreadTerminalRouteScreen.tsx`, one literal in `openExternalUrl.ts`. Nothing else — the
-   ride-alongs were what sank #4549.
+   one commit. The diff is exactly six files: `terminalBufferLinks.ts` + test,
+   `TerminalLinkBar.tsx`, two-line wiring in `ThreadTerminalRouteScreen.tsx` (upstream deleted
+   `ThreadTerminalPanel.tsx` in the 2026-09-05 sync), one literal in `openExternalUrl.ts`.
+   Nothing else — the ride-alongs were what sank #4549.
 3. PR body must state: the native alternative and why we didn't take it (GPU-rendered text, no
    native rebuild, no mouse-report side effects); the heuristic's limits (wrap-join assumes
    ≥40 cols, http(s) only, 3 chips, 16 KB scan window); that the logic mirrors
