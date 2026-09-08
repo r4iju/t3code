@@ -10,14 +10,20 @@ import {
   ReadAloudController,
   type ReadAloudState,
 } from "@t3tools/client-runtime/read-aloud";
-import { type EnvironmentId, type SpeechSynthesizeInput, WS_METHODS } from "@t3tools/contracts";
+import {
+  DEFAULT_READ_ALOUD_PLAYBACK_RATE,
+  type EnvironmentId,
+  type SpeechSynthesizeInput,
+  WS_METHODS,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/unstable/reactivity";
 import { useSyncExternalStore } from "react";
 import { Alert } from "react-native";
 
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import { serverEnvironment } from "../../state/server";
 import { environmentSession } from "../../state/session";
 import { createReadAloudPlayer } from "./expoAudioReadAloudPlayer";
@@ -70,9 +76,31 @@ export function setVoiceInputActive(active: boolean): void {
 let state: ReadAloudState = READ_ALOUD_IDLE_STATE;
 const listeners = new Set<() => void>();
 
+const player = createReadAloudPlayer();
+
+// Deferred to first use so importing this module never forces the preferences
+// store to load before the app is ready for it.
+let playbackRateSynced = false;
+function ensurePlaybackRateSynced(): void {
+  if (playbackRateSynced) return;
+  playbackRateSynced = true;
+  const apply = () => {
+    const preferences = appAtomRegistry.get(mobilePreferencesAtom);
+    if (!AsyncResult.isSuccess(preferences)) return;
+    player.setPlaybackRate(
+      preferences.value.readAloudPlaybackRate ?? DEFAULT_READ_ALOUD_PLAYBACK_RATE,
+    );
+  };
+  appAtomRegistry.subscribe(mobilePreferencesAtom, apply);
+  apply();
+}
+
 const controller = new ReadAloudController<ReadAloudRequest>({
-  player: createReadAloudPlayer(),
-  resolveAudio,
+  player,
+  resolveAudio: (request, signal) => {
+    ensurePlaybackRateSynced();
+    return resolveAudio(request, signal);
+  },
   beforeStart: () => (voiceInputActive ? "Stop recording before reading aloud." : null),
   onStateChange: (next) => {
     state = next;

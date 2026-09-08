@@ -62,7 +62,9 @@ Every finished assistant response has a **Read aloud** control next to its copy
 button on web, desktop, and mobile. Press it to hear the response; press again to
 stop. Starting another response stops the one playing, and leaving the thread
 stops playback. Code blocks and tool output are skipped, tables are announced as
-omitted, and links are read by their label.
+omitted, and links are read by their label. Playback speed (1× to 2×) is a
+per-device setting in the same section; on mobile it lives under **Settings →
+General → Read Aloud**. The audio is time-stretched, so the voice keeps its pitch.
 
 Read aloud is off until the environment owner configures a speech service under
 **Settings → General → Read aloud**. The service is any endpoint that speaks the

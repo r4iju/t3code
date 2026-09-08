@@ -24,6 +24,8 @@ class TestPlayer implements ReadAloudPlayer {
   callbacks: ReadAloudPlaybackCallbacks | null = null;
   private pending = deferred<void>();
 
+  setPlaybackRate(): void {}
+
   play(url: string, callbacks: ReadAloudPlaybackCallbacks): Promise<void> {
     this.played.push(url);
     this.callbacks = callbacks;

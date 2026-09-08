@@ -341,6 +341,14 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "environment-defaults",
   },
   {
+    id: "read-aloud-speed",
+    title: "Read aloud speed",
+    to: "/settings/general",
+    targetId: "read-aloud-enabled",
+    searchTerms: ["playback rate faster slower 1.5x 2x speech"],
+    primaryOnly: true,
+  },
+  {
     id: "new-threads",
     title: "New threads",
     to: "/settings/general",

@@ -29,6 +29,14 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
     readonly rejectPending: ((error: Error) => void) | null;
   } | null = null;
   let generation = 0;
+  let playbackRate = 1;
+
+  // Pitch correction keeps the voice natural at faster speeds; "high" selects
+  // the spectral algorithm, which is the one suited to speech.
+  const applyPlaybackRate = (player: AudioPlayer) => {
+    player.shouldCorrectPitch = true;
+    player.setPlaybackRate(playbackRate, "high");
+  };
 
   const release = () => {
     const current = active;
@@ -61,6 +69,7 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
       if (token !== generation) throw new Error("Playback stopped.");
 
       const player = createAudioPlayer({ uri: url });
+      applyPlaybackRate(player);
       await new Promise<void>((resolve, reject) => {
         let started = false;
         const subscription = player.addListener("playbackStatusUpdate", (status) => {
@@ -91,5 +100,9 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
       });
     },
     stop,
+    setPlaybackRate(rate) {
+      playbackRate = rate;
+      if (active !== null) applyPlaybackRate(active.player);
+    },
   };
 }

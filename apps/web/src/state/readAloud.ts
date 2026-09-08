@@ -22,6 +22,7 @@ import { Atom } from "effect/unstable/reactivity";
 import { useSyncExternalStore } from "react";
 
 import { toastManager } from "../components/ui/toast";
+import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { createReadAloudPlayer } from "../lib/readAloudPlayer";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -49,11 +50,25 @@ const synthesizeSpeech = createEnvironmentRpcCommand(connectionAtomRuntime, {
 let state: ReadAloudState = READ_ALOUD_IDLE_STATE;
 const listeners = new Set<() => void>();
 
+const player = createReadAloudPlayer();
+
+// Deferred to first use: subscribing hydrates client settings through the
+// local API, which is not installed yet when this module loads.
+let playbackRateSynced = false;
+function ensurePlaybackRateSynced(): void {
+  if (playbackRateSynced) return;
+  playbackRateSynced = true;
+  const apply = () => player.setPlaybackRate(getClientSettings().readAloudPlaybackRate);
+  subscribeClientSettings(apply);
+  apply();
+}
+
 /** The one read-aloud controller for this client; the environment synthesizes, the browser plays. */
 const controller = new ReadAloudController<ReadAloudRequest>({
-  player: createReadAloudPlayer(),
-  resolveAudio: (request, signal) =>
-    withPreparedConnection(
+  player,
+  resolveAudio: (request, signal) => {
+    ensurePlaybackRateSynced();
+    return withPreparedConnection(
       {
         registry: appAtomRegistry,
         atom: environmentSession.preparedConnectionValueAtom(request.environmentId),
@@ -71,7 +86,8 @@ const controller = new ReadAloudController<ReadAloudRequest>({
         if (url === null) throw new Error("The environment returned an invalid audio URL.");
         return { url };
       },
-    ),
+    );
+  },
   onStateChange: (next) => {
     state = next;
     for (const listener of listeners) listener();
