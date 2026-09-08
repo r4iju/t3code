@@ -23,6 +23,7 @@ import {
   type VoiceDraftSnapshot,
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
+import { readAloud, setVoiceInputActive } from "../read-aloud/readAloud";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
@@ -123,7 +124,10 @@ export function useVoiceInputController(input: {
         current.onChangeSelection(selection);
         current.onChangeDraftMessage(text);
       },
-      onStateChange: setState,
+      onStateChange: (next) => {
+        setVoiceInputActive(next.phase === "preparing" || next.phase === "recording");
+        setState(next);
+      },
     });
   }
 
@@ -198,7 +202,9 @@ export function useVoiceInputController(input: {
   }, [audioLevels, controller, recorder, state.phase]);
 
   const start = useCallback(() => {
-    if (!latestInputRef.current.disabled) void controller.start();
+    if (latestInputRef.current.disabled) return;
+    readAloud.stop();
+    void controller.start();
   }, [controller]);
   const stop = useCallback(() => controller.stop(), [controller]);
   const cancel = useCallback(() => controller.cancel(), [controller]);

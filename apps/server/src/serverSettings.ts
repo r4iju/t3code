@@ -146,6 +146,9 @@ export function usageLimitSourceSecretName(sourceId: string): string {
   return `usage-limit-source-${Buffer.from(sourceId, "utf8").toString("base64url")}`;
 }
 
+/** The read-aloud API key follows the same marker round-trip; one key per environment. */
+export const SPEECH_API_KEY_SECRET_NAME = "speech-api-key";
+
 function redactProviderEnvironmentVariable(
   variable: ProviderInstanceEnvironmentVariable,
 ): ProviderInstanceEnvironmentVariable {
@@ -182,7 +185,15 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
       },
     ]),
   );
-  return { ...settings, providerInstances, usageLimitSources };
+  // Keep the block itself so clients can gate on `speech !== null`.
+  const speech =
+    settings.speech === null
+      ? null
+      : {
+          ...settings.speech,
+          apiKey: settings.speech.apiKey.length > 0 ? USAGE_LIMIT_SOURCE_KEY_REDACTED : "",
+        };
+  return { ...settings, providerInstances, usageLimitSources, speech };
 }
 
 export class ServerSettingsService extends Context.Service<
@@ -559,10 +570,25 @@ const make = Effect.gen(function* () {
           managementKey: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
         };
       }
+      let speech = settings.speech;
+      if (speech !== null && speech.apiKey === USAGE_LIMIT_SOURCE_KEY_REDACTED) {
+        const secret = yield* secretStore
+          .get(SPEECH_API_KEY_SECRET_NAME)
+          .pipe(
+            Effect.mapError(
+              (cause) => new ServerSettingsError({ settingsPath, operation: "read-secret", cause }),
+            ),
+          );
+        speech = {
+          ...speech,
+          apiKey: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
+        };
+      }
       return {
         ...settings,
         providerInstances: providerInstances as ServerSettings["providerInstances"],
         usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
+        speech,
       };
     });
 
@@ -731,10 +757,34 @@ const make = Effect.gen(function* () {
           );
       }
 
+      let speech = next.speech;
+      if (speech === null || speech.apiKey.length === 0) {
+        yield* secretStore
+          .remove(SPEECH_API_KEY_SECRET_NAME)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerSettingsError({ settingsPath, operation: "remove-secret", cause }),
+            ),
+          );
+      } else if (speech.apiKey !== USAGE_LIMIT_SOURCE_KEY_REDACTED) {
+        yield* secretStore
+          .set(SPEECH_API_KEY_SECRET_NAME, textEncoder.encode(speech.apiKey))
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new ServerSettingsError({ settingsPath, operation: "write-secret", cause }),
+            ),
+          );
+        speech = { ...speech, apiKey: USAGE_LIMIT_SOURCE_KEY_REDACTED };
+      }
+      // A marker from the client means "keep what you have"; the store already has it.
+
       return {
         ...next,
         providerInstances: providerInstances as ServerSettings["providerInstances"],
         usageLimitSources: usageLimitSources as ServerSettings["usageLimitSources"],
+        speech,
       };
     });
 

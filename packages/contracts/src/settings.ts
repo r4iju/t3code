@@ -9,6 +9,7 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
+import { SpeechSettings } from "./speech.ts";
 import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -1054,6 +1055,8 @@ export const ServerSettings = Schema.Struct({
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  /** Read-aloud speech service; `null` means the feature is off. The key is redacted for clients. */
+  speech: Schema.NullOr(SpeechSettings).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   /** Exact model IDs, applied to past and future usage on this environment. */
   usagePriceOverrides: Schema.Record(TrimmedNonEmptyString, UsageModelPriceOverride).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1286,6 +1289,8 @@ export const ServerSettingsPatch = Schema.Struct({
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),
   ),
+  /** Whole block replaces the current one; `null` turns read aloud off. */
+  speech: Schema.optionalKey(Schema.NullOr(SpeechSettings)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;
 

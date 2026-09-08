@@ -56,6 +56,28 @@ is unavailable or has changed, the saved quote remains readable.
 Mobile displays saved quotes and comments, but does not create citations or
 navigate to their sources.
 
+## Read a response aloud
+
+Every finished assistant response has a **Read aloud** control next to its copy
+button on web, desktop, and mobile. Press it to hear the response; press again to
+stop. Starting another response stops the one playing, and leaving the thread
+stops playback. Code blocks and tool output are skipped, tables are announced as
+omitted, and links are read by their label.
+
+Read aloud is off until the environment owner configures a speech service under
+**Settings → General → Read aloud**. The service is any endpoint that speaks the
+OpenAI speech API, so you can point it at OpenAI with an API key or at a local
+model server on your own machine or network with no key. Enter the model and
+voice names that endpoint expects, then use **Test voice** to confirm it works.
+Mobile reads whatever the environment has configured; it cannot change it.
+
+Synthesis runs on the environment and the audio is cached there, so replaying a
+response is instant and repeated listens cost nothing. Only the message text is
+sent to the speech service you configured.
+
+On web and desktop, the command palette offers **Read latest response aloud**,
+which you can bind to a shortcut under **Settings → Keybindings**.
+
 ## Recall a sent prompt
 
 Press `ArrowUp` in an empty composer to bring back the last prompt you sent in this thread. Press
@@ -80,7 +102,14 @@ Stashes containing uploaded files must be restored in their original environment
 Those files are retained for 24 hours. After an upload expires, restore the prompt
 and use **Attach again** or remove the missing file before sending.
 
-## Voice input on iPhone
+## Voice input
+
+The composer is a normal text field, so system dictation tools type into it on
+every surface. On macOS, tools such as superwhisper or the built-in dictation
+insert text at the cursor in the desktop app and in a browser tab, including into
+a draft that already holds an `@` mention or `/` command. On iPhone, the keyboard's
+dictation and third-party dictation keyboards work the same way. There is no
+in-app microphone on web or desktop.
 
 On supported iPhones with iOS 26 or later, use the composer's microphone to record,
 then confirm to transcribe. Text is inserted where your selection was when

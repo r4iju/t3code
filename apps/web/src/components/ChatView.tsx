@@ -198,6 +198,7 @@ import {
 } from "@t3tools/client-runtime/state/subagentRuntime";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import { readAloud, readLatestAloud } from "../state/readAloud";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   AlarmClockIcon,
@@ -1854,6 +1855,10 @@ export default function ChatView(props: ChatViewProps) {
   );
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
+  const readAloudThreadRef = isServerThread ? activeThreadRef : null;
+  useEffect(() => {
+    readAloud.stopOutsideThread(readAloudThreadRef);
+  }, [readAloudThreadRef]);
   const [timelineAnchor, setTimelineAnchor] = useState<{
     readonly threadKey: string | null;
     readonly messageId: MessageId | null;
@@ -5969,6 +5974,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "speech.readLatest") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) readLatestAloud(readAloudThreadRef);
+        return;
+      }
+
       if (command === "thread.settle") {
         event.preventDefault();
         event.stopPropagation();
@@ -6163,6 +6175,7 @@ export default function ChatView(props: ChatViewProps) {
     supportsSettlement,
     confirmAndUnpinThread,
     copyActiveThreadReference,
+    readAloudThreadRef,
     previewPanelOpen,
     toggleRightPanel,
     toggleRightPanelMaximized,

@@ -44,6 +44,10 @@ export const AssetResource = Schema.Union([
   Schema.TaggedStruct("native-app-icon", {
     app: ToolActivityNativeAppReference,
   }),
+  /** Read-aloud audio the environment synthesized and cached; the key is the cache file name. */
+  Schema.TaggedStruct("speech", {
+    cacheKey: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  }),
 ]);
 export type AssetResource = typeof AssetResource.Type;
 

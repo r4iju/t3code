@@ -1,0 +1,212 @@
+import { READ_ALOUD_SAMPLE_KEY } from "@t3tools/client-runtime/read-aloud";
+import type { SpeechSettings } from "@t3tools/contracts";
+import { SquareIcon, Volume2Icon } from "lucide-react";
+import { useState } from "react";
+
+import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import { usePrimaryEnvironmentId } from "../../state/environments";
+import { readAloud, useReadAloudPhase } from "../../state/readAloud";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Spinner } from "../ui/spinner";
+import { Switch } from "../ui/switch";
+import {
+  applyReadAloudPreset,
+  isReadAloudFormDirty,
+  READ_ALOUD_PRESET_LABELS,
+  readAloudEnabledPatch,
+  readAloudFormFromSettings,
+  type ReadAloudFormErrors,
+  type ReadAloudFormValues,
+  type ReadAloudPreset,
+  SPEECH_MIN_CHARS_PER_REQUEST,
+  validateReadAloudForm,
+} from "./ReadAloudSettings.logic";
+import { SettingsRow, SettingsSection } from "./settingsLayout";
+import { searchableSetting } from "./settingsSearch";
+
+const PRESETS: ReadonlyArray<ReadAloudPreset> = ["openai", "local"];
+
+export function ReadAloudSettings() {
+  const speech = usePrimarySettings((settings) => settings.speech);
+  const updateSettings = useUpdatePrimarySettings();
+
+  return (
+    <SettingsSection id="read-aloud" title="Read aloud">
+      <SettingsRow
+        {...searchableSetting("read-aloud-enabled")}
+        serverScoped
+        description="Play finished agent responses through a speech service such as OpenAI or a local server."
+        control={
+          <Switch
+            checked={speech !== null}
+            aria-label="Enable read aloud"
+            onCheckedChange={(checked) => updateSettings(readAloudEnabledPatch(checked))}
+          />
+        }
+      />
+      {speech !== null ? (
+        // Keyed on the saved block so a save (or another client's write) resets the draft.
+        <ReadAloudForm
+          key={JSON.stringify(readAloudFormFromSettings(speech))}
+          saved={speech}
+          onSave={(settings) => updateSettings({ speech: settings })}
+        />
+      ) : null}
+    </SettingsSection>
+  );
+}
+
+function ReadAloudForm({
+  saved,
+  onSave,
+}: {
+  saved: SpeechSettings;
+  onSave: (settings: SpeechSettings) => void;
+}) {
+  const environmentId = usePrimaryEnvironmentId();
+  const [form, setForm] = useState<ReadAloudFormValues>(() => readAloudFormFromSettings(saved));
+  const [errors, setErrors] = useState<ReadAloudFormErrors>({});
+  const samplePhase = useReadAloudPhase(READ_ALOUD_SAMPLE_KEY);
+
+  const dirty = isReadAloudFormDirty(form, saved);
+  const update = (patch: Partial<ReadAloudFormValues>) => {
+    setForm((current) => ({ ...current, ...patch }));
+  };
+  const save = () => {
+    const result = validateReadAloudForm(form);
+    if (!result.ok) {
+      setErrors(result.errors);
+      return;
+    }
+    setErrors({});
+    onSave(result.settings);
+  };
+  const testVoice = () => {
+    if (environmentId === null) return;
+    readAloud.toggle({ key: READ_ALOUD_SAMPLE_KEY, environmentId, input: { _tag: "sample" } });
+  };
+
+  return (
+    <>
+      <SettingsRow
+        {...searchableSetting("read-aloud-base-url")}
+        serverScoped
+        description="Any endpoint that speaks the OpenAI speech API."
+        status={errors.baseUrl}
+        control={
+          <Input
+            size="sm"
+            className="sm:w-72"
+            aria-label="Base URL"
+            placeholder="https://api.openai.com/v1"
+            value={form.baseUrl}
+            onChange={(event) => update({ baseUrl: event.target.value })}
+          />
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("read-aloud-api-key")}
+        serverScoped
+        description="Stored on the server and never sent back to clients. Leave blank for local servers."
+        control={
+          <Input
+            size="sm"
+            className="sm:w-72"
+            type="password"
+            autoComplete="off"
+            aria-label="API key"
+            value={form.apiKey}
+            onChange={(event) => update({ apiKey: event.target.value })}
+          />
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("read-aloud-model")}
+        serverScoped
+        status={errors.model}
+        control={
+          <Input
+            size="sm"
+            className="sm:w-72"
+            aria-label="Model"
+            value={form.model}
+            onChange={(event) => update({ model: event.target.value })}
+          />
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("read-aloud-voice")}
+        serverScoped
+        status={errors.voice}
+        control={
+          <Input
+            size="sm"
+            className="sm:w-72"
+            aria-label="Voice"
+            value={form.voice}
+            onChange={(event) => update({ voice: event.target.value })}
+          />
+        }
+      />
+      <SettingsRow
+        {...searchableSetting("read-aloud-max-chars")}
+        serverScoped
+        description={`Long responses are split into requests no larger than this (${SPEECH_MIN_CHARS_PER_REQUEST} or more).`}
+        status={errors.maxCharsPerRequest}
+        control={
+          <Input
+            size="sm"
+            className="sm:w-32"
+            inputMode="numeric"
+            aria-label="Max characters per request"
+            value={form.maxCharsPerRequest}
+            onChange={(event) => update({ maxCharsPerRequest: event.target.value })}
+          />
+        }
+      />
+      <SettingsRow
+        title="Presets"
+        serverScoped
+        description="Prefill the fields above; nothing is saved until you press Save."
+        status={dirty ? "Unsaved changes. Test voice uses the saved settings." : undefined}
+        control={
+          <>
+            {PRESETS.map((preset) => (
+              <Button
+                key={preset}
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  setErrors({});
+                  setForm((current) => applyReadAloudPreset(current, preset));
+                }}
+              >
+                {READ_ALOUD_PRESET_LABELS[preset]}
+              </Button>
+            ))}
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={dirty || environmentId === null}
+              aria-label={samplePhase === "idle" ? "Test voice" : "Stop test"}
+              onClick={testVoice}
+            >
+              {samplePhase === "loading" ? (
+                <Spinner />
+              ) : samplePhase === "playing" ? (
+                <SquareIcon className="fill-current" />
+              ) : (
+                <Volume2Icon />
+              )}
+              {samplePhase === "idle" ? "Test voice" : "Stop"}
+            </Button>
+            <Button size="xs" disabled={!dirty} onClick={save}>
+              Save
+            </Button>
+          </>
+        }
+      />
+    </>
+  );
+}

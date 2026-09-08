@@ -158,6 +158,7 @@ import {
   useSettingsSearchTarget,
   useSettingsSearchTargetId,
 } from "./settingsLayout";
+import { ReadAloudSettings } from "./ReadAloudSettings";
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
@@ -2515,6 +2516,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ReadAloudSettings />
 
       <SettingsSection id="projects-and-threads" title="Projects & threads">
         <SettingsRow

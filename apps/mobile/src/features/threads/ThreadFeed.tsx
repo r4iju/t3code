@@ -103,6 +103,7 @@ import {
   type MediaVideoPreviewSource,
 } from "../../lib/videoPreviewSource";
 import { CopyTextButton } from "../../components/CopyTextButton";
+import { ReadAloudButton } from "../read-aloud/ReadAloudButton";
 import {
   parseReviewCommentMessageSegments,
   type ReviewInlineComment,
@@ -1326,6 +1327,7 @@ function renderFeedEntry(
   props: Pick<
     ThreadFeedProps,
     | "environmentId"
+    | "threadId"
     | "onUseArtifactTemplate"
     | "skills"
     | "dispatchingMessageId"
@@ -1635,6 +1637,15 @@ function renderFeedEntry(
             <CopyTextButton
               accessibilityLabel="Copy message"
               text={renderedText}
+              tintColor={iconSubtleColor}
+              buttonSize={28}
+              iconSize={13}
+            />
+            <ReadAloudButton
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+              messageId={message.id}
+              text={message.text}
               tintColor={iconSubtleColor}
               buttonSize={28}
               iconSize={13}
@@ -2704,6 +2715,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         <ThreadMediaVisibility>
           {renderFeedEntry(info, {
             environmentId: props.environmentId,
+            threadId: props.threadId,
             dispatchingMessageId: props.dispatchingMessageId,
             onEditPendingMessage: props.onEditPendingMessage,
             copiedRowId,
@@ -2763,6 +2775,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       props.environmentId,
+      props.threadId,
       props.onUseArtifactTemplate,
       props.skills,
       renderMarkdownImage,
