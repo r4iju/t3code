@@ -48,7 +48,7 @@ export const SpeechSettings = Schema.Struct({
 });
 export type SpeechSettings = typeof SpeechSettings.Type;
 
-export const SpeechSynthesizeInput = Schema.Union([
+export const SpeechSource = Schema.Union([
   Schema.TaggedStruct("message", {
     threadId: ThreadId,
     messageId: MessageId,
@@ -56,12 +56,25 @@ export const SpeechSynthesizeInput = Schema.Union([
   /** Speaks the fixed sample sentence with the current configuration. */
   Schema.TaggedStruct("sample", {}),
 ]);
+export type SpeechSource = typeof SpeechSource.Type;
+
+/**
+ * One call synthesizes one segment. Segments are sentence-aligned and grow from
+ * a few sentences up to `maxCharsPerRequest`, so the first plays within seconds
+ * while the client keeps asking for the rest; `segmentCount` in the result says
+ * how many there are.
+ */
+export const SpeechSynthesizeInput = Schema.Struct({
+  source: SpeechSource,
+  segment: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+});
 export type SpeechSynthesizeInput = typeof SpeechSynthesizeInput.Type;
 
 export const SpeechSynthesizeResult = Schema.Struct({
   relativeUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(4096)),
   expiresAt: Schema.Number,
   mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100)),
+  segmentCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
 });
 export type SpeechSynthesizeResult = typeof SpeechSynthesizeResult.Type;
 
@@ -110,6 +123,16 @@ export class SpeechTooLongError extends Schema.TaggedError<SpeechTooLongError>()
   }
 }
 
+/** The segmentation changed under a client mid-message, which only a settings edit can cause. */
+export class SpeechSegmentNotFoundError extends Schema.TaggedError<SpeechSegmentNotFoundError>()(
+  "SpeechSegmentNotFoundError",
+  { segment: Schema.Int, segmentCount: Schema.Int },
+) {
+  override get message(): string {
+    return "The rest of this message is no longer available to read aloud. Play it again.";
+  }
+}
+
 export const SpeechServiceFailureReason = Schema.Literals([
   "unreachable",
   "unauthorized",
@@ -132,7 +155,7 @@ export class SpeechServiceError extends Schema.TaggedError<SpeechServiceError>()
       case "rate-limited":
         return "The speech service is rate limiting requests.";
       case "unsupported-format":
-        return "The speech service returned an audio format that cannot be stitched.";
+        return "The speech service returned an audio format that cannot be played.";
       case "unavailable":
         return "The speech service returned an error.";
     }
@@ -164,6 +187,7 @@ export const SpeechSynthesizeError = Schema.Union([
   SpeechMessageStreamingError,
   SpeechNothingToReadError,
   SpeechTooLongError,
+  SpeechSegmentNotFoundError,
   SpeechServiceError,
   SpeechCacheError,
 ]);

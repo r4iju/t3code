@@ -15,7 +15,7 @@ import {
 import {
   type EnvironmentId,
   type ScopedThreadRef,
-  type SpeechSynthesizeInput,
+  type SpeechSource,
   WS_METHODS,
 } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
@@ -37,7 +37,7 @@ import { environmentThreadDetails } from "./threads";
 export interface ReadAloudRequest {
   readonly key: string;
   readonly environmentId: EnvironmentId;
-  readonly input: SpeechSynthesizeInput;
+  readonly input: SpeechSource;
 }
 
 export type ReadAloudPhase = "idle" | "loading" | "playing";
@@ -66,7 +66,7 @@ function ensurePlaybackRateSynced(): void {
 /** The one read-aloud controller for this client; the environment synthesizes, the browser plays. */
 const controller = new ReadAloudController<ReadAloudRequest>({
   player,
-  resolveAudio: (request, signal) => {
+  resolveAudio: (request, segment, signal) => {
     ensurePlaybackRateSynced();
     return withPreparedConnection(
       {
@@ -78,13 +78,13 @@ const controller = new ReadAloudController<ReadAloudRequest>({
         const result = await runAtomCommand(
           appAtomRegistry,
           synthesizeSpeech,
-          { environmentId: request.environmentId, input: request.input },
+          { environmentId: request.environmentId, input: { source: request.input, segment } },
           { reportFailure: false },
         );
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
         const url = resolveAssetUrl(connection.httpBaseUrl, result.value.relativeUrl);
         if (url === null) throw new Error("The environment returned an invalid audio URL.");
-        return { url };
+        return { url, segmentCount: result.value.segmentCount };
       },
     );
   },

@@ -23,12 +23,15 @@ function playErrorMessage(error: unknown): string {
 }
 
 /**
- * Plays read-aloud audio through a single reused `HTMLAudioElement`, which the
- * app's read-aloud controller drives so only one message plays at a time.
+ * Plays read-aloud audio through `HTMLAudioElement`s that the app's read-aloud
+ * controller drives, so only one message plays at a time. One element plays
+ * while a second buffers the next segment, and `play` promotes the buffered
+ * element when its URL matches so segments follow each other without a gap.
  */
 export function createReadAloudPlayer(): ReadAloudPlayer {
-  let audio: HTMLAudioElement | null = null;
+  let active: HTMLAudioElement | null = null;
   let detachListeners: (() => void) | null = null;
+  let preloaded: { readonly element: HTMLAudioElement; readonly url: string } | null = null;
   let playbackRate = 1;
 
   // Loading a new source resets playbackRate to defaultPlaybackRate, so set both.
@@ -37,24 +40,49 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
     element.playbackRate = playbackRate;
   };
 
-  const stop = () => {
+  const createElement = (url: string) => {
+    const element = new Audio();
+    element.preload = "auto";
+    // Time-stretch instead of resampling, so faster speeds keep the voice's pitch.
+    element.preservesPitch = true;
+    element.src = url;
+    applyPlaybackRate(element);
+    return element;
+  };
+
+  const discard = (element: HTMLAudioElement) => {
+    element.pause();
+    // Dropping the attribute (rather than assigning "") avoids a spurious error event.
+    element.removeAttribute("src");
+    element.load();
+  };
+
+  const release = () => {
     detachListeners?.();
     detachListeners = null;
-    if (audio === null) return;
-    audio.pause();
-    // Dropping the attribute (rather than assigning "") avoids a spurious error event.
-    audio.removeAttribute("src");
-    audio.load();
+    if (active === null) return;
+    discard(active);
+    active = null;
+  };
+
+  const stop = () => {
+    release();
+    if (preloaded === null) return;
+    discard(preloaded.element);
+    preloaded = null;
   };
 
   return {
     async play(url, callbacks) {
-      stop();
-      audio ??= new Audio();
-      const element = audio;
-      element.preload = "auto";
-      // Time-stretch instead of resampling, so faster speeds keep the voice's pitch.
-      element.preservesPitch = true;
+      release();
+      let element: HTMLAudioElement;
+      if (preloaded !== null && preloaded.url === url) {
+        element = preloaded.element;
+        preloaded = null;
+      } else {
+        element = createElement(url);
+      }
+      active = element;
       const onEnded = () => {
         detachListeners?.();
         detachListeners = null;
@@ -71,8 +99,6 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
         element.removeEventListener("ended", onEnded);
         element.removeEventListener("error", onError);
       };
-      element.src = url;
-      applyPlaybackRate(element);
       try {
         await element.play();
       } catch (error) {
@@ -80,10 +106,16 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
         throw new Error(playErrorMessage(error), { cause: error });
       }
     },
+    preload(url) {
+      if (preloaded?.url === url) return;
+      if (preloaded !== null) discard(preloaded.element);
+      preloaded = { element: createElement(url), url };
+    },
     stop,
     setPlaybackRate(rate) {
       playbackRate = rate;
-      if (audio !== null) applyPlaybackRate(audio);
+      if (active !== null) applyPlaybackRate(active);
+      if (preloaded !== null) applyPlaybackRate(preloaded.element);
     },
   };
 }

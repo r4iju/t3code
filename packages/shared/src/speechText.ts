@@ -133,63 +133,67 @@ export function prepareSpeechText(markdown: string): string {
 
 const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;
 
-function splitLongParagraph(paragraph: string, maxChars: number): string[] {
-  const pieces: string[] = [];
-  let buffer = "";
-  const push = (piece: string) => {
-    if (piece.length === 0) return;
-    if (buffer.length === 0) {
-      buffer = piece;
-    } else if (buffer.length + 1 + piece.length <= maxChars) {
-      buffer = `${buffer} ${piece}`;
-    } else {
-      pieces.push(buffer);
-      buffer = piece;
-    }
-  };
+/**
+ * Characters in a message's first segment. Each later segment may be twice the
+ * one before it, up to the per-request ceiling: the first words arrive within a
+ * couple of seconds, and a speech service that runs a few times faster than
+ * real time stays ahead of playback from then on.
+ */
+export const SPEECH_FIRST_SEGMENT_CHARS = 200;
 
+/**
+ * A sentence over the limit breaks at whitespace; a single word over the limit
+ * is the only thing that ever splits mid-word.
+ */
+function paragraphSentences(paragraph: string, maxChars: number): string[] {
+  const sentences: string[] = [];
   for (const sentence of paragraph.split(SENTENCE_BOUNDARY)) {
-    if (sentence.length <= maxChars) {
-      push(sentence);
-      continue;
-    }
-    // A sentence over the limit breaks at whitespace; a single word over the
-    // limit is the only thing that ever splits mid-word.
     let rest = sentence;
     while (rest.length > maxChars) {
       const cut = rest.lastIndexOf(" ", maxChars);
       const at = cut > 0 ? cut : maxChars;
-      push(rest.slice(0, at).trim());
+      sentences.push(rest.slice(0, at).trim());
       rest = rest.slice(at).trim();
     }
-    push(rest);
+    if (rest.length > 0) sentences.push(rest);
   }
-  if (buffer.length > 0) pieces.push(buffer);
-  return pieces;
+  return sentences;
 }
 
-/** Chunks fall on paragraph, then sentence, then whitespace boundaries. */
-export function splitSpeechText(text: string, maxChars: number): string[] {
+/**
+ * Splits prepared text into the segments an environment synthesizes one call
+ * at a time. Segments end on sentence boundaries and keep paragraph breaks
+ * inside them; their size starts at `SPEECH_FIRST_SEGMENT_CHARS` and doubles
+ * until it reaches `maxChars`.
+ */
+export function splitSpeechSegments(text: string, maxChars: number): string[] {
   if (maxChars < 1) throw new RangeError("maxChars must be at least 1");
-  const chunks: string[] = [];
+  const segments: string[] = [];
+  let target = Math.min(SPEECH_FIRST_SEGMENT_CHARS, maxChars);
   let buffer = "";
+  const close = () => {
+    if (buffer.length === 0) return;
+    segments.push(buffer);
+    buffer = "";
+    target = Math.min(target * 2, maxChars);
+  };
 
   for (const paragraph of text.split(/\n{2,}/)) {
     const trimmed = paragraph.trim();
     if (trimmed.length === 0) continue;
-    for (const piece of trimmed.length <= maxChars
-      ? [trimmed]
-      : splitLongParagraph(trimmed, maxChars)) {
+    let joiner = "\n\n";
+    for (const sentence of paragraphSentences(trimmed, maxChars)) {
       if (buffer.length === 0) {
-        buffer = piece;
-      } else if (buffer.length + 2 + piece.length <= maxChars) {
-        buffer = `${buffer}\n\n${piece}`;
+        buffer = sentence;
+      } else if (buffer.length + joiner.length + sentence.length <= target) {
+        buffer = `${buffer}${joiner}${sentence}`;
       } else {
-        chunks.push(buffer);
-        buffer = piece;
+        close();
+        buffer = sentence;
       }
+      joiner = " ";
     }
   }
-  if (buffer.length > 0) chunks.push(buffer);
-  return chunks;
+  close();
+  return segments;
 }

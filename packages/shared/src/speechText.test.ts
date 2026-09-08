@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { prepareSpeechText, SPEECH_TABLE_OMITTED_NOTE, splitSpeechText } from "./speechText.ts";
+import {
+  prepareSpeechText,
+  SPEECH_FIRST_SEGMENT_CHARS,
+  SPEECH_TABLE_OMITTED_NOTE,
+  splitSpeechSegments,
+} from "./speechText.ts";
 
 describe("prepareSpeechText", () => {
   it("drops fenced code blocks and keeps the surrounding prose", () => {
@@ -102,16 +107,16 @@ describe("prepareSpeechText", () => {
   });
 });
 
-describe("splitSpeechText", () => {
-  it("keeps short text as a single chunk", () => {
-    expect(splitSpeechText("Hello there.\n\nSecond paragraph.", 100)).toEqual([
+describe("splitSpeechSegments", () => {
+  it("keeps short text as a single segment", () => {
+    expect(splitSpeechSegments("Hello there.\n\nSecond paragraph.", 100)).toEqual([
       "Hello there.\n\nSecond paragraph.",
     ]);
   });
 
-  it("splits on paragraph boundaries first", () => {
+  it("keeps paragraph breaks inside a segment", () => {
     const text = "Alpha paragraph.\n\nBeta paragraph.\n\nGamma paragraph.";
-    expect(splitSpeechText(text, 36)).toEqual([
+    expect(splitSpeechSegments(text, 36)).toEqual([
       "Alpha paragraph.\n\nBeta paragraph.",
       "Gamma paragraph.",
     ]);
@@ -119,7 +124,7 @@ describe("splitSpeechText", () => {
 
   it("splits a long paragraph on sentence boundaries", () => {
     const text = "First sentence here. Second sentence here! Third one?";
-    expect(splitSpeechText(text, 45)).toEqual([
+    expect(splitSpeechSegments(text, 45)).toEqual([
       "First sentence here. Second sentence here!",
       "Third one?",
     ]);
@@ -127,12 +132,36 @@ describe("splitSpeechText", () => {
 
   it("never splits a word when a sentence exceeds the limit", () => {
     const text = "alpha beta gamma delta epsilon";
-    const chunks = splitSpeechText(text, 12);
-    expect(chunks).toEqual(["alpha beta", "gamma delta", "epsilon"]);
-    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(12);
+    const segments = splitSpeechSegments(text, 12);
+    expect(segments).toEqual(["alpha beta", "gamma delta", "epsilon"]);
+    for (const segment of segments) expect(segment.length).toBeLessThanOrEqual(12);
   });
 
   it("drops empty paragraphs", () => {
-    expect(splitSpeechText("\n\n  \n\nonly", 10)).toEqual(["only"]);
+    expect(splitSpeechSegments("\n\n  \n\nonly", 10)).toEqual(["only"]);
+  });
+
+  it("starts small and doubles each segment up to the ceiling", () => {
+    const sentence = "This sentence is exactly forty-nine chars long ok.";
+    const text = Array.from({ length: 60 }, () => sentence).join(" ");
+    const segments = splitSpeechSegments(text, 1000);
+    expect(segments.join(" ")).toBe(text);
+    expect(segments[0]!.length).toBeLessThanOrEqual(SPEECH_FIRST_SEGMENT_CHARS);
+    expect(segments.length).toBeGreaterThan(4);
+    let target = SPEECH_FIRST_SEGMENT_CHARS;
+    for (const [index, segment] of segments.entries()) {
+      expect(segment.length).toBeLessThanOrEqual(target);
+      // Packed with whole sentences: one more would not have fit. The last
+      // segment is whatever remains, so it may be short.
+      if (index < segments.length - 1) {
+        expect(segment.length + 1 + sentence.length).toBeGreaterThan(target);
+      }
+      target = Math.min(target * 2, 1000);
+    }
+  });
+
+  it("never splits a sentence below the ceiling, even for the first segment", () => {
+    const long = `${"word ".repeat(80)}end.`;
+    expect(splitSpeechSegments(`${long} Short one.`, 4096)).toEqual([long, "Short one."]);
   });
 });
