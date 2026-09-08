@@ -938,4 +938,42 @@ describe("AssetAccess", () => {
       expect(error.cause).toBe(resolutionCause);
     }).pipe(Effect.provide(testLayer)),
   );
+
+  it.effect("serves cached speech audio inline by cache key and rejects malformed keys", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const config = yield* ServerConfig.ServerConfig;
+      const cacheKey = `${"a".repeat(64)}.mp3`;
+      const speechPath = path.join(config.speechDir, cacheKey);
+      yield* fileSystem.writeFile(speechPath, new Uint8Array([0xff, 0xfb, 0x90]));
+
+      const issued = yield* issueAssetUrl({ resource: { _tag: "speech", cacheKey } });
+      const suffix = issued.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const separator = suffix.indexOf("/");
+      const token = suffix.slice(0, separator);
+      expect(yield* resolveAsset(token, suffix.slice(separator + 1))).toEqual({
+        kind: "file",
+        path: speechPath,
+        mimeType: "audio/mpeg",
+      });
+
+      for (const bad of [
+        "../settings.json",
+        `${"a".repeat(64)}.exe`,
+        `${"A".repeat(64)}.mp3`,
+        `${"a".repeat(63)}.mp3`,
+        "missing",
+      ]) {
+        const error = yield* issueAssetUrl({ resource: { _tag: "speech", cacheKey: bad } }).pipe(
+          Effect.flip,
+        );
+        expect(error._tag).toBe("AssetWorkspaceAssetNotFoundError");
+      }
+      const missing = yield* issueAssetUrl({
+        resource: { _tag: "speech", cacheKey: `${"b".repeat(64)}.wav` },
+      }).pipe(Effect.flip);
+      expect(missing._tag).toBe("AssetWorkspaceAssetNotFoundError");
+    }).pipe(Effect.provide(testLayer)),
+  );
 });

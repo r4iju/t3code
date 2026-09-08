@@ -63,8 +63,11 @@ const DOWNLOAD_MIME_TYPE_PATTERN = /^[\w!#$&^.+-]+\/[\w!#$&^.+-]+$/;
 const isSafeDownloadMimeType = (mimeType: string): boolean =>
   DOWNLOAD_MIME_TYPE_PATTERN.test(mimeType) &&
   !/(?:^text\/html$|\/xml(?:$|-)|\+xml$)/i.test(mimeType.trim().toLowerCase());
-const isSafeInlineVideoMimeType = (mimeType: string): boolean =>
-  DOWNLOAD_MIME_TYPE_PATTERN.test(mimeType) && mimeType.toLowerCase().startsWith("video/");
+// Video and audio share inline delivery: native players probe with byte ranges
+// (WebKit and AVFoundation refuse a source that answers a Range with 200).
+const isSafeInlineMediaMimeType = (mimeType: string): boolean =>
+  DOWNLOAD_MIME_TYPE_PATTERN.test(mimeType) &&
+  (mimeType.toLowerCase().startsWith("video/") || mimeType.toLowerCase().startsWith("audio/"));
 const isSafeInlineDocumentMimeType = (mimeType: string): boolean =>
   mimeType.toLowerCase() === "application/pdf" || mimeType.toLowerCase() === "text/html";
 
@@ -108,7 +111,7 @@ export function assetResponseHeaders(
               ? options.mimeType
               : "application/octet-stream",
         }
-      : inlineMimeType !== undefined && isSafeInlineVideoMimeType(inlineMimeType)
+      : inlineMimeType !== undefined && isSafeInlineMediaMimeType(inlineMimeType)
         ? { "Content-Type": inlineMimeType }
         : inlineMimeType !== undefined && isSafeInlineDocumentMimeType(inlineMimeType)
           ? {
@@ -170,7 +173,9 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
   const headers = assetResponseHeaders(asset.path, asset);
   const mediaFile = asset.file;
   const mediaInfo = mediaFile ? yield* statMediaFile(asset.path, mediaFile) : undefined;
-  const isVideo = headers["Content-Type"]?.toLowerCase().startsWith("video/") === true;
+  const contentType = headers["Content-Type"]?.toLowerCase() ?? "";
+  const isVideo = contentType.startsWith("video/");
+  const isRangeMedia = isVideo || contentType.startsWith("audio/");
   if (mediaFile && isVideo) {
     // Host videos can change in place. Do not invite conditional range requests
     // with validators that cannot establish byte-for-byte identity.
@@ -179,7 +184,7 @@ export const assetFileResponse = Effect.fn("assetFileResponse")(function* (
   let status = 200;
   let offset = 0n;
   let bytesToRead: bigint | undefined;
-  if (isVideo) {
+  if (isRangeMedia) {
     headers["Accept-Ranges"] = "bytes";
     // If-Range requires a matching validator. A full response is safe when we cannot validate it.
     if (method === "GET" && rangeHeader && ifRangeHeader === undefined) {

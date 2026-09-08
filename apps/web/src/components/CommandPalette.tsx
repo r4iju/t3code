@@ -47,8 +47,10 @@ import {
   MessageSquareIcon,
   PaletteIcon,
   SettingsIcon,
+  SquareIcon,
   SquarePenIcon,
   TextSearchIcon,
+  Volume2Icon,
 } from "lucide-react";
 import {
   useCallback,
@@ -157,6 +159,7 @@ import {
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
 import { ThreadRowLeadingStatus, ThreadRowTrailingStatus } from "./ThreadStatusIndicators";
+import { readLatestAloud, useReadAloudActive } from "../state/readAloud";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
 import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindings";
@@ -645,6 +648,10 @@ function OpenCommandPaletteDialog(props: {
       );
     }
   }, [activeThreadReferenceCopyTarget]);
+  const readAloudActive = useReadAloudActive();
+  const readAloudThreadRef = activeThread
+    ? scopeThreadRef(activeThread.environmentId, activeThread.id)
+    : null;
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -1617,6 +1624,24 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (readAloudThreadRef !== null || readAloudActive) {
+    actionItems.push({
+      kind: "action",
+      value: "action:read-latest-aloud",
+      searchTerms: ["read aloud", "speak", "speech", "voice", "listen", "tts", "stop reading"],
+      title: readAloudActive ? "Stop reading" : "Read latest response aloud",
+      icon: readAloudActive ? (
+        <SquareIcon className={ITEM_ICON_CLASS} />
+      ) : (
+        <Volume2Icon className={ITEM_ICON_CLASS} />
+      ),
+      shortcutCommand: "speech.readLatest",
+      run: async () => {
+        readLatestAloud(readAloudThreadRef);
+      },
+    });
+  }
+
   actionItems.push({
     kind: "action",
     value: "action:open-file-picker",
@@ -2292,6 +2317,13 @@ function OpenCommandPaletteDialog(props: {
       if (activeThreadReferenceCopyTarget === null) return;
       setOpen(false);
       void copyActiveThreadReference();
+      return;
+    }
+    if (command === "speech.readLatest") {
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      readLatestAloud(readAloudThreadRef);
       return;
     }
 

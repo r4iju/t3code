@@ -233,6 +233,7 @@ import {
   SourceControlRepositoryInfo,
   SourceControlRepositoryLookupInput,
 } from "./sourceControl.ts";
+import { SpeechSynthesizeError, SpeechSynthesizeInput, SpeechSynthesizeResult } from "./speech.ts";
 import { VcsError } from "./vcs.ts";
 
 export const WS_METHODS = {
@@ -256,6 +257,7 @@ export const WS_METHODS = {
   assetsCreateUrl: "assets.createUrl",
   attachmentsCreateUploadUrl: "attachments.createUploadUrl",
   attachmentsDelete: "attachments.delete",
+  speechSynthesize: "speech.synthesize",
 
   // Provider methods
   providerUploadFeedback: "provider.uploadFeedback",
@@ -856,6 +858,12 @@ const WsAttachmentsDeleteRpc = Rpc.make(WS_METHODS.attachmentsDelete, {
   error: EnvironmentAuthorizationError,
 });
 
+const WsSpeechSynthesizeRpc = Rpc.make(WS_METHODS.speechSynthesize, {
+  payload: SpeechSynthesizeInput,
+  success: SpeechSynthesizeResult,
+  error: Schema.Union([SpeechSynthesizeError, EnvironmentAuthorizationError]),
+});
+
 const WsProviderUploadFeedbackRpc = Rpc.make(WS_METHODS.providerUploadFeedback, {
   payload: ProviderUploadFeedbackInput,
   success: ProviderUploadFeedbackResult,
@@ -1254,6 +1262,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsAssetsCreateUrlRpc,
   WsAttachmentsCreateUploadUrlRpc,
   WsAttachmentsDeleteRpc,
+  WsSpeechSynthesizeRpc,
   WsProviderUploadFeedbackRpc,
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,

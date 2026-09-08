@@ -4,7 +4,7 @@ import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { HttpClient } from "effect/unstable/http";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom, type AtomRegistry } from "effect/unstable/reactivity";
 
 import { RemoteEnvironmentAuthorization } from "../authorization/service.ts";
 import { EnvironmentRegistry } from "../connection/registry.ts";
@@ -157,4 +157,46 @@ export function createEnvironmentSessionAtoms<R, E>(
     sessionStateAtom,
     sessionStateValueAtom,
   };
+}
+
+/**
+ * Runs `use` with the prepared connection, for imperative callers outside React.
+ * The prepared-connection atom is stream-backed and idle until someone
+ * subscribes, and the environment session lives only while something holds it,
+ * so the subscription stays open until `use` settles rather than just until the
+ * value arrives. The signal is the only bound: callers abort when the user
+ * gives up.
+ */
+export async function withPreparedConnection<T>(
+  input: {
+    readonly registry: AtomRegistry.AtomRegistry;
+    readonly atom: Atom.Atom<Option.Option<PreparedConnection>>;
+    readonly signal?: AbortSignal;
+  },
+  use: (connection: PreparedConnection) => Promise<T>,
+): Promise<T> {
+  // Assigned inside the promise executor, so a holder keeps the narrowing honest.
+  const subscription: { release: (() => void) | null } = { release: null };
+  try {
+    const connection = await new Promise<PreparedConnection>((resolve, reject) => {
+      const onAbort = () => reject(new Error("Reconnect to this environment and try again."));
+      if (input.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      input.signal?.addEventListener("abort", onAbort, { once: true });
+      subscription.release = input.registry.subscribe(
+        input.atom,
+        (value: Option.Option<PreparedConnection>) => {
+          if (Option.isNone(value)) return;
+          input.signal?.removeEventListener("abort", onAbort);
+          resolve(value.value);
+        },
+        { immediate: true },
+      );
+    });
+    return await use(connection);
+  } finally {
+    subscription.release?.();
+  }
 }

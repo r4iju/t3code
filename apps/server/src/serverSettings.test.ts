@@ -1279,4 +1279,87 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.include(persisted, '"valueRedacted": true');
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
+
+  const speechSettings = {
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: "sk-speech-secret",
+    model: "gpt-4o-mini-tts",
+    voice: "alloy",
+    maxCharsPerRequest: 4096,
+  };
+
+  it.effect("stores the speech API key outside settings.json and hydrates it on read", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      const next = yield* serverSettings.updateSettings({ speech: speechSettings });
+      assert.equal(next.speech?.apiKey, "sk-speech-secret");
+
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.notInclude(raw, "sk-speech-secret");
+      // @effect-diagnostics-next-line preferSchemaOverJson:off
+      assert.equal(JSON.parse(raw).speech.apiKey, "\u2022\u2022\u2022\u2022\u2022\u2022");
+
+      const redacted = ServerSettingsModule.redactServerSettingsForClient(next);
+      assert.equal(redacted.speech?.apiKey, "\u2022\u2022\u2022\u2022\u2022\u2022");
+      assert.equal(redacted.speech?.voice, "alloy");
+
+      const reloaded = yield* Effect.gen(function* () {
+        const fresh = yield* ServerSettingsModule.ServerSettingsService;
+        return yield* fresh.getSettings;
+      }).pipe(
+        Effect.provide(
+          Layer.fresh(ServerSettingsModule.layer).pipe(Layer.provide(ServerSecretStore.layer)),
+        ),
+      );
+      assert.equal(reloaded.speech?.apiKey, "sk-speech-secret");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("keeps the stored speech API key when the client sends the marker back", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* serverSettings.updateSettings({ speech: speechSettings });
+
+      const next = yield* serverSettings.updateSettings({
+        speech: {
+          ...speechSettings,
+          voice: "nova",
+          apiKey: "\u2022\u2022\u2022\u2022\u2022\u2022",
+        },
+      });
+      assert.equal(next.speech?.voice, "nova");
+      assert.equal(next.speech?.apiKey, "sk-speech-secret");
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("removes the speech secret when the key is cleared or read aloud is turned off", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const secretPath = path.join(
+        serverConfig.secretsDir,
+        `${ServerSettingsModule.SPEECH_API_KEY_SECRET_NAME}.bin`,
+      );
+      yield* serverSettings.updateSettings({ speech: speechSettings });
+      assert.isTrue(yield* fileSystem.exists(secretPath));
+
+      const cleared = yield* serverSettings.updateSettings({
+        speech: { ...speechSettings, apiKey: "" },
+      });
+      assert.equal(cleared.speech?.apiKey, "");
+      assert.isFalse(yield* fileSystem.exists(secretPath));
+      assert.equal(ServerSettingsModule.redactServerSettingsForClient(cleared).speech?.apiKey, "");
+
+      yield* serverSettings.updateSettings({ speech: speechSettings });
+      assert.isTrue(yield* fileSystem.exists(secretPath));
+      const off = yield* serverSettings.updateSettings({ speech: null });
+      assert.isNull(off.speech);
+      assert.isFalse(yield* fileSystem.exists(secretPath));
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
 });

@@ -66,6 +66,24 @@ const INLINE_DOCUMENT_MIME_TYPES: Record<string, string> = {
   html: "text/html",
   htm: "text/html",
 };
+// Cache keys are `<sha256 hex>.<ext>`; the strict shape is what keeps a token
+// from ever naming a path outside the speech directory.
+const SPEECH_AUDIO_MIME_TYPES: Record<string, string> = {
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  aac: "audio/aac",
+  flac: "audio/flac",
+  webm: "audio/webm",
+};
+const SPEECH_CACHE_KEY_PATTERN = /^[0-9a-f]{64}\.(mp3|wav|ogg|aac|flac|webm)$/;
+
+/** Mime type for a valid speech cache key, or null when the key is malformed. */
+export function speechCacheKeyMimeType(cacheKey: string): string | null {
+  const match = SPEECH_CACHE_KEY_PATTERN.exec(cacheKey);
+  return match ? (SPEECH_AUDIO_MIME_TYPES[match[1]!] ?? null) : null;
+}
+
 const PREVIEW_ASSET_EXTENSIONS = new Set([
   ...WORKSPACE_BROWSER_PREVIEW_EXTENSIONS,
   ...WORKSPACE_IMAGE_PREVIEW_EXTENSIONS,
@@ -131,6 +149,12 @@ const AssetClaimsSchema = Schema.Union([
     version: Schema.Literal(1),
     kind: Schema.Literal("native-app-icon"),
     app: ToolActivityNativeAppReference,
+    expiresAt: Schema.Number,
+  }),
+  Schema.Struct({
+    version: Schema.Literal(1),
+    kind: Schema.Literal("speech"),
+    cacheKey: Schema.String,
     expiresAt: Schema.Number,
   }),
 ]);
@@ -577,6 +601,25 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       fileName = "native-app-icon.png";
       break;
     }
+    case "speech": {
+      if (speechCacheKeyMimeType(input.resource.cacheKey) === null) {
+        return yield* new AssetWorkspaceAssetNotFoundError({ resource: input.resource });
+      }
+      const config = yield* ServerConfig.ServerConfig;
+      const info = yield* optionOnNotFound(
+        fileSystem.stat(path.join(config.speechDir, input.resource.cacheKey)),
+      ).pipe(
+        Effect.mapError(
+          (cause) => new AssetWorkspaceAssetInspectionError({ resource: input.resource, cause }),
+        ),
+      );
+      if (Option.isNone(info) || info.value.type !== "File") {
+        return yield* new AssetWorkspaceAssetNotFoundError({ resource: input.resource });
+      }
+      claims = { version: 1, kind: "speech", cacheKey: input.resource.cacheKey, expiresAt };
+      fileName = input.resource.cacheKey;
+      break;
+    }
   }
 
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -681,6 +724,24 @@ export const resolveAsset = Effect.fn("AssetAccess.resolveAsset")(function* (
     const nativeAppIconResolver = yield* NativeAppIconResolver.NativeAppIconResolver;
     const iconPath = yield* nativeAppIconResolver.resolve(claims.app);
     return iconPath ? ({ kind: "file", path: iconPath } satisfies ResolvedAsset) : null;
+  }
+
+  if (claims.kind === "speech") {
+    const mimeType = speechCacheKeyMimeType(claims.cacheKey);
+    if (mimeType === null) return null;
+    const config = yield* ServerConfig.ServerConfig;
+    const path = yield* Path.Path;
+    const speechPath = path.join(config.speechDir, claims.cacheKey);
+    const fileSystem = yield* FileSystem.FileSystem;
+    const info = yield* optionOnNotFound(fileSystem.stat(speechPath)).pipe(
+      Effect.tapError((cause) =>
+        Effect.logError("Failed to inspect speech asset.", { path: speechPath, cause }),
+      ),
+      Effect.orElseSucceed(() => Option.none()),
+    );
+    return Option.isSome(info) && info.value.type === "File"
+      ? ({ kind: "file", path: speechPath, mimeType } satisfies ResolvedAsset)
+      : null;
   }
 
   const decodedPath = decodeRelativePath(relativePath);

@@ -51,6 +51,10 @@
       "types": "./src/shell.ts",
       "import": "./src/shell.ts"
     },
+    "./speechText": {
+      "types": "./src/speechText.ts",
+      "import": "./src/speechText.ts"
+    },
     "./semver": {
       "types": "./src/semver.ts",
       "import": "./src/semver.ts"

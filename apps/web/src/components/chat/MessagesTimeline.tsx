@@ -116,6 +116,7 @@ import {
   SnapShotAttachmentDetails,
 } from "./SnapShotAttachmentDetails";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { AssistantReadAloudButton } from "./ReadAloudButton";
 import { ChangedFilesCard } from "./ChangedFilesTree";
 import {
   CHAT_TIMELINE_ANCHOR_OFFSET,
@@ -1659,6 +1660,13 @@ function AssistantMessageMeta({
         message={message}
         showCopyButton={showCopyButton}
         streaming={copyStreaming}
+      />
+      <AssistantReadAloudButton
+        message={message}
+        showCopyButton={showCopyButton}
+        streaming={copyStreaming}
+        threadRef={ctx.threadRef}
+        environmentId={ctx.activeThreadEnvironmentId}
       />
       {!message.streaming && (
         <Tooltip>

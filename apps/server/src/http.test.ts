@@ -19,6 +19,33 @@ import {
 
 const fileResponseLayer = Layer.mergeAll(NodeHttpPlatform.layer, NodeServices.layer);
 
+describe("audio asset byte ranges", () => {
+  it.effect("answers a Range probe on a cached speech file with 206 and Accept-Ranges", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "t3-audio-range-" });
+      const filePath = path.join(directory, "speech.mp3");
+      yield* fs.writeFileString(filePath, "0123456789");
+      const probe = HttpServerResponse.toWeb(
+        yield* assetFileResponse({ path: filePath, mimeType: "audio/mpeg" }, "bytes=0-1"),
+      );
+      expect(probe.status).toBe(206);
+      expect(probe.headers.get("accept-ranges")).toBe("bytes");
+      expect(probe.headers.get("content-type")).toBe("audio/mpeg");
+      expect(probe.headers.get("content-range")).toBe("bytes 0-1/10");
+      expect(yield* Effect.promise(() => probe.text())).toBe("01");
+
+      const full = HttpServerResponse.toWeb(
+        yield* assetFileResponse({ path: filePath, mimeType: "audio/mpeg" }),
+      );
+      expect(full.status).toBe(200);
+      expect(full.headers.get("accept-ranges")).toBe("bytes");
+      expect(yield* Effect.promise(() => full.text())).toBe("0123456789");
+    }).pipe(Effect.provide(fileResponseLayer)),
+  );
+});
+
 describe("video asset byte ranges", () => {
   it.effect("uses current descriptor metadata after an in-place truncate or extension", () =>
     Effect.gen(function* () {

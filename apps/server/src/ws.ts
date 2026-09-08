@@ -62,6 +62,8 @@ import {
   type FilesystemBrowseFailure,
   FilesystemBrowseError,
   AssetWorkspaceContextNotFoundError,
+  SPEECH_SAMPLE_TEXT,
+  SpeechEnvironmentError,
   AssetWorkspaceContextResolutionError,
   RpcClientId,
   EnvironmentAuthorizationError,
@@ -139,6 +141,8 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as HostResources from "./resourceTelemetry/HostResources.ts";
 import * as AnalyticsService from "./telemetry/AnalyticsService.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
+import * as Speech from "./speech/Speech.ts";
+import { resolveSpeechMessageText } from "./speech/speechSource.ts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -511,6 +515,7 @@ const makeWsRpcLayer = (
       const keybindings = yield* Keybindings.Keybindings;
       const environmentTheme = yield* EnvironmentTheme.EnvironmentThemeService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
+      const speech = yield* Speech.Speech;
       const externalLauncher = yield* ExternalLauncher.ExternalLauncher;
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
@@ -2396,6 +2401,7 @@ const makeWsRpcLayer = (
               if (
                 input.resource._tag === "attachment" ||
                 input.resource._tag === "native-app-icon" ||
+                input.resource._tag === "speech" ||
                 (input.resource._tag === "media-file" && path.isAbsolute(input.resource.path))
               ) {
                 return yield* issueAssetUrl({ resource: input.resource });
@@ -2462,6 +2468,21 @@ const makeWsRpcLayer = (
               });
             }),
             { "rpc.aggregate": "workspace" },
+          ),
+        [WS_METHODS.speechSynthesize]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.speechSynthesize,
+            Effect.gen(function* () {
+              if (input._tag === "sample") {
+                return yield* speech.synthesizeText(SPEECH_SAMPLE_TEXT);
+              }
+              const message = yield* projectionSnapshotQuery
+                .getTurnStartMessage(input)
+                .pipe(Effect.mapError((cause) => new SpeechEnvironmentError({ cause })));
+              const text = yield* resolveSpeechMessageText(message, input);
+              return yield* speech.synthesizeText(text);
+            }),
+            { "rpc.aggregate": "speech" },
           ),
         [WS_METHODS.subscribeVcsStatus]: (input) =>
           observeRpcStream(
