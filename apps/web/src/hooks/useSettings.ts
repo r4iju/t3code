@@ -91,7 +91,8 @@ function setClientSettingsHydrationStatus(nextStatus: ClientSettingsHydrationSta
   emitClientSettingsHydrationChange();
 }
 
-function subscribeClientSettings(listener: () => void): () => void {
+/** Also kicks off hydration, so call it only once the local API is installed. */
+export function subscribeClientSettings(listener: () => void): () => void {
   clientSettingsListeners.add(listener);
   void hydrateClientSettings().catch(() => undefined);
   return () => {

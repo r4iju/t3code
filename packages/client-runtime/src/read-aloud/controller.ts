@@ -31,6 +31,8 @@ export interface ReadAloudPlayer {
   play(url: string, callbacks: ReadAloudPlaybackCallbacks): Promise<void>;
   /** Idempotent. Releases the underlying audio resources. */
   stop(): void;
+  /** Applies to the clip playing now and to every clip after it. */
+  setPlaybackRate(rate: number): void;
 }
 
 export type ReadAloudControllerDependencies<Request extends ReadAloudRequest> = {

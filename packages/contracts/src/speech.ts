@@ -18,6 +18,21 @@ export const SPEECH_MAX_TOTAL_CHARS = 24_000;
 export const SPEECH_SAMPLE_TEXT =
   "Read aloud is working. This voice will read finished agent responses to you.";
 
+/** Client-side playback speeds; clients time-stretch the audio so the voice keeps its pitch. */
+export const READ_ALOUD_PLAYBACK_RATES = [1, 1.25, 1.5, 1.75, 2] as const;
+export const ReadAloudPlaybackRate = Schema.Literals(READ_ALOUD_PLAYBACK_RATES);
+export type ReadAloudPlaybackRate = typeof ReadAloudPlaybackRate.Type;
+export const DEFAULT_READ_ALOUD_PLAYBACK_RATE: ReadAloudPlaybackRate = 1.5;
+
+export function isReadAloudPlaybackRate(value: unknown): value is ReadAloudPlaybackRate {
+  return (READ_ALOUD_PLAYBACK_RATES as ReadonlyArray<unknown>).includes(value);
+}
+
+/** The label every client shows for a speed: "1×", "1.5×". */
+export function formatReadAloudPlaybackRate(rate: ReadAloudPlaybackRate): string {
+  return `${rate}×`;
+}
+
 export const SpeechSettings = Schema.Struct({
   /** Any endpoint that speaks the OpenAI speech API shape, cloud or local. */
   baseUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),

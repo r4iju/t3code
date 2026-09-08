@@ -9,7 +9,11 @@ import {
   TrimmedString,
 } from "./baseSchemas.ts";
 import { UsageLimitSourceId } from "./usageLimitSourceId.ts";
-import { SpeechSettings } from "./speech.ts";
+import {
+  DEFAULT_READ_ALOUD_PLAYBACK_RATE,
+  ReadAloudPlaybackRate,
+  SpeechSettings,
+} from "./speech.ts";
 import { EnvironmentMachineKind, ThreadEnvMode } from "./environment.ts";
 import { KeybindingShortcut } from "./keybindings.ts";
 import {
@@ -442,6 +446,10 @@ export const ClientSettingsSchema = Schema.Struct({
   snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Read-aloud playback speed on this device; the audio is time-stretched so the voice keeps its pitch. */
+  readAloudPlaybackRate: ReadAloudPlaybackRate.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_READ_ALOUD_PLAYBACK_RATE)),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1368,5 +1376,6 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotFlash: Schema.optionalKey(Schema.Boolean),
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+  readAloudPlaybackRate: Schema.optionalKey(ReadAloudPlaybackRate),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

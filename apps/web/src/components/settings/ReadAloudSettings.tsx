@@ -1,13 +1,24 @@
 import { READ_ALOUD_SAMPLE_KEY } from "@t3tools/client-runtime/read-aloud";
-import type { SpeechSettings } from "@t3tools/contracts";
+import {
+  DEFAULT_READ_ALOUD_PLAYBACK_RATE,
+  formatReadAloudPlaybackRate,
+  READ_ALOUD_PLAYBACK_RATES,
+  type SpeechSettings,
+} from "@t3tools/contracts";
 import { SquareIcon, Volume2Icon } from "lucide-react";
 import { useState } from "react";
 
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import {
+  useClientSettings,
+  usePrimarySettings,
+  useUpdateClientSettings,
+  useUpdatePrimarySettings,
+} from "../../hooks/useSettings";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { readAloud, useReadAloudPhase } from "../../state/readAloud";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
 import {
@@ -22,7 +33,7 @@ import {
   SPEECH_MIN_CHARS_PER_REQUEST,
   validateReadAloudForm,
 } from "./ReadAloudSettings.logic";
-import { SettingsRow, SettingsSection } from "./settingsLayout";
+import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
 const PRESETS: ReadonlyArray<ReadAloudPreset> = ["openai", "local"];
@@ -46,12 +57,15 @@ export function ReadAloudSettings() {
         }
       />
       {speech !== null ? (
-        // Keyed on the saved block so a save (or another client's write) resets the draft.
-        <ReadAloudForm
-          key={JSON.stringify(readAloudFormFromSettings(speech))}
-          saved={speech}
-          onSave={(settings) => updateSettings({ speech: settings })}
-        />
+        <>
+          <ReadAloudForm
+            // Keyed on the saved block so a save (or another client's write) resets the draft.
+            key={JSON.stringify(readAloudFormFromSettings(speech))}
+            saved={speech}
+            onSave={(settings) => updateSettings({ speech: settings })}
+          />
+          <ReadAloudSpeedRow />
+        </>
       ) : null}
     </SettingsSection>
   );
@@ -208,5 +222,48 @@ function ReadAloudForm({
         }
       />
     </>
+  );
+}
+
+/** Per-device: playback speed lives in client settings, not on the environment. */
+function ReadAloudSpeedRow() {
+  const rate = useClientSettings((settings) => settings.readAloudPlaybackRate);
+  const updateClientSettings = useUpdateClientSettings();
+
+  return (
+    <SettingsRow
+      {...searchableSetting("read-aloud-speed")}
+      description="Applies on this device. Audio is sped up without changing the voice's pitch."
+      resetAction={
+        rate !== DEFAULT_READ_ALOUD_PLAYBACK_RATE ? (
+          <SettingResetButton
+            label="read aloud speed"
+            onClick={() =>
+              void updateClientSettings({ readAloudPlaybackRate: DEFAULT_READ_ALOUD_PLAYBACK_RATE })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={String(rate)}
+          onValueChange={(value) => {
+            const next = READ_ALOUD_PLAYBACK_RATES.find((candidate) => String(candidate) === value);
+            if (next !== undefined) void updateClientSettings({ readAloudPlaybackRate: next });
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-32" aria-label="Read aloud speed">
+            <SelectValue>{formatReadAloudPlaybackRate(rate)}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {READ_ALOUD_PLAYBACK_RATES.map((candidate) => (
+              <SelectItem hideIndicator key={candidate} value={String(candidate)}>
+                {formatReadAloudPlaybackRate(candidate)}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
   );
 }

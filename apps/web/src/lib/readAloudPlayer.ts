@@ -29,6 +29,13 @@ function playErrorMessage(error: unknown): string {
 export function createReadAloudPlayer(): ReadAloudPlayer {
   let audio: HTMLAudioElement | null = null;
   let detachListeners: (() => void) | null = null;
+  let playbackRate = 1;
+
+  // Loading a new source resets playbackRate to defaultPlaybackRate, so set both.
+  const applyPlaybackRate = (element: HTMLAudioElement) => {
+    element.defaultPlaybackRate = playbackRate;
+    element.playbackRate = playbackRate;
+  };
 
   const stop = () => {
     detachListeners?.();
@@ -46,6 +53,8 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
       audio ??= new Audio();
       const element = audio;
       element.preload = "auto";
+      // Time-stretch instead of resampling, so faster speeds keep the voice's pitch.
+      element.preservesPitch = true;
       const onEnded = () => {
         detachListeners?.();
         detachListeners = null;
@@ -63,6 +72,7 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
         element.removeEventListener("error", onError);
       };
       element.src = url;
+      applyPlaybackRate(element);
       try {
         await element.play();
       } catch (error) {
@@ -71,5 +81,9 @@ export function createReadAloudPlayer(): ReadAloudPlayer {
       }
     },
     stop,
+    setPlaybackRate(rate) {
+      playbackRate = rate;
+      if (audio !== null) applyPlaybackRate(audio);
+    },
   };
 }

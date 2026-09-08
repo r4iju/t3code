@@ -38,9 +38,11 @@ import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironments } from "../../state/environments";
 import {
+  DEFAULT_READ_ALOUD_PLAYBACK_RATE,
   DEFAULT_SERVER_SETTINGS,
   MAX_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
   MIN_SIDEBAR_AUTO_SETTLE_AFTER_DAYS,
+  formatReadAloudPlaybackRate,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import {
@@ -542,9 +544,20 @@ function ConfiguredSettingsRouteScreen() {
 }
 
 function GeneralSettingsSection() {
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const readAloudRate = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.readAloudPlaybackRate ?? DEFAULT_READ_ALOUD_PLAYBACK_RATE)
+    : DEFAULT_READ_ALOUD_PLAYBACK_RATE;
+
   return (
     <SettingsSection title="General">
       <SettingsRow icon="folder" label="Project Grouping" target="SettingsProjectGrouping" />
+      <SettingsRow
+        icon="speaker.wave.2"
+        label="Read Aloud"
+        value={formatReadAloudPlaybackRate(readAloudRate)}
+        target="SettingsReadAloud"
+      />
       <AutoSettleSettingsRows />
       <SettingsRow icon="chart.bar.xaxis" label="Usage" target="SettingsUsage" />
     </SettingsSection>

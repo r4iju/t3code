@@ -723,3 +723,18 @@ describe("ServerSettings environment icon", () => {
     expect(encodeServerSettings(linuxSettings).environmentIcon).toBe("linux");
   });
 });
+
+describe("ClientSettings read aloud speed", () => {
+  it("defaults to 1.5x and accepts the preset speeds", () => {
+    expect(decodeClientSettings({}).readAloudPlaybackRate).toBe(1.5);
+    expect(decodeClientSettings({ readAloudPlaybackRate: 2 }).readAloudPlaybackRate).toBe(2);
+    expect(decodeClientSettingsPatch({ readAloudPlaybackRate: 1.25 }).readAloudPlaybackRate).toBe(
+      1.25,
+    );
+  });
+
+  it("rejects speeds outside the presets", () => {
+    expect(() => decodeClientSettings({ readAloudPlaybackRate: 3 })).toThrow();
+    expect(() => decodeClientSettingsPatch({ readAloudPlaybackRate: 1.1 })).toThrow();
+  });
+});
