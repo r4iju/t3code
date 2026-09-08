@@ -13,6 +13,7 @@ const HEADING_LINE = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
 const LIST_MARKER = /^\s*(?:[-*+]|\d{1,3}[.)])\s+(?:\[[ xX]\]\s+)?/;
 const BLOCKQUOTE_MARKER = /^\s*(?:>\s?)+/;
 const HORIZONTAL_RULE = /^\s{0,3}(?:[-*_]\s*){3,}$/;
+const INDENTED_CODE_LINE = /^(?: {4}|\t)/;
 const TERMINAL_PUNCTUATION = /[.!?:;,]$/;
 // Only the directives Codex emits; a generic colon rule would eat "10:30" or "re:build".
 const CODEX_DIRECTIVE =
@@ -52,23 +53,28 @@ export function prepareSpeechText(markdown: string): string {
   let current: string[] = [];
   let fence: string | null = null;
   let inTable = false;
+  let previousLineBlank = true;
+
+  let currentIsListItem = false;
 
   const flush = () => {
-    if (current.length === 0) return;
     const text = current.join(" ").replace(/\s+/g, " ").trim();
-    if (text.length > 0) paragraphs.push(text);
+    if (text.length > 0) paragraphs.push(currentIsListItem ? ensureSentenceEnd(text) : text);
     current = [];
+    currentIsListItem = false;
   };
 
   for (const rawLine of lines) {
     if (fence) {
-      if (FENCE_LINE.test(rawLine) && rawLine.trim().startsWith(fence[0]!)) fence = null;
+      const closing = FENCE_LINE.exec(rawLine)?.[1];
+      if (closing && closing[0] === fence[0] && closing.length >= fence.length) fence = null;
       continue;
     }
     const fenceMatch = FENCE_LINE.exec(rawLine);
     if (fenceMatch) {
       flush();
       fence = fenceMatch[1]!;
+      previousLineBlank = true;
       continue;
     }
 
@@ -84,8 +90,16 @@ export function prepareSpeechText(markdown: string): string {
 
     if (rawLine.trim().length === 0 || HORIZONTAL_RULE.test(rawLine)) {
       flush();
+      previousLineBlank = true;
       continue;
     }
+
+    // An indented block after a blank line is code; directly under prose or a
+    // list item it is a wrapped continuation line.
+    if (INDENTED_CODE_LINE.test(rawLine) && previousLineBlank) {
+      continue;
+    }
+    previousLineBlank = false;
 
     const heading = HEADING_LINE.exec(rawLine);
     if (heading) {
@@ -98,14 +112,17 @@ export function prepareSpeechText(markdown: string): string {
     let line = rawLine.replace(BLOCKQUOTE_MARKER, "");
     const listMatch = LIST_MARKER.exec(line);
     if (listMatch) {
+      // Each item is its own sentence; its wrapped continuation lines join it.
       flush();
       line = line.slice(listMatch[0].length);
       const text = stripInlineMarkup(line);
-      if (text.length > 0) current.push(ensureSentenceEnd(text));
-      flush();
+      if (text.length > 0) current.push(text);
+      currentIsListItem = true;
       continue;
     }
 
+    // Only an indented line continues a list item; anything else starts fresh.
+    if (currentIsListItem && !/^\s/.test(rawLine)) flush();
     const text = stripInlineMarkup(line);
     if (text.length > 0) current.push(text);
   }

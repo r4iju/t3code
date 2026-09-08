@@ -72,6 +72,26 @@ describe("prepareSpeechText", () => {
     );
   });
 
+  it("drops indented code blocks but keeps wrapped continuation lines", () => {
+    const markdown = [
+      "Run this:",
+      "",
+      "    npm install",
+      "    npm test",
+      "",
+      "- a list item that",
+      "    wraps onto an indented line.",
+    ].join("\n");
+    expect(prepareSpeechText(markdown)).toBe(
+      "Run this:\n\na list item that wraps onto an indented line.",
+    );
+  });
+
+  it("only closes a fence with one at least as long as the opener", () => {
+    const markdown = ["````md", "```", "still code", "````", "After."].join("\n");
+    expect(prepareSpeechText(markdown)).toBe("After.");
+  });
+
   it("returns an empty string for code-only input", () => {
     expect(prepareSpeechText("```\nls -la\n```")).toBe("");
     expect(prepareSpeechText("   \n\n")).toBe("");

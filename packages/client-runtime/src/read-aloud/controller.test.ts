@@ -159,6 +159,16 @@ describe("ReadAloudController", () => {
     expect(controller.currentState.phase).toBe("idle");
   });
 
+  it("stays idle when the clip ends before play resolves", async () => {
+    const { controller, player } = createHarness();
+    const start = controller.start({ key: "m1" });
+    await flush();
+    player.callbacks?.onEnded();
+    player.started();
+    await start;
+    expect(controller.currentState.phase).toBe("idle");
+  });
+
   it("surfaces a mid-playback player error", async () => {
     const { controller, player } = createHarness();
     const start = controller.start({ key: "m1" });

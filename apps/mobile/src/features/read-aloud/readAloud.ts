@@ -11,11 +11,14 @@ import {
   type ReadAloudState,
 } from "@t3tools/client-runtime/read-aloud";
 import { type EnvironmentId, type SpeechSynthesizeInput, WS_METHODS } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import { Atom } from "effect/unstable/reactivity";
 import { useSyncExternalStore } from "react";
 import { Alert } from "react-native";
 
 import { connectionAtomRuntime } from "../../connection/runtime";
 import { appAtomRegistry } from "../../state/atom-registry";
+import { serverEnvironment } from "../../state/server";
 import { environmentSession } from "../../state/session";
 import { createReadAloudPlayer } from "./expoAudioReadAloudPlayer";
 
@@ -101,4 +104,15 @@ export function useReadAloudState(): ReadAloudState {
 /** Subscribes to a derived value so unrelated messages skip the render. */
 export function useReadAloudSelector<T>(select: (state: ReadAloudState) => T): T {
   return useSyncExternalStore(subscribe, () => select(state));
+}
+
+/** Derived per environment so a settings push only re-renders buttons when the flag flips. */
+const speechConfiguredAtom = Atom.family((environmentId: EnvironmentId) =>
+  Atom.make(
+    (get) => (get(serverEnvironment.settingsValueAtom(environmentId))?.speech ?? null) !== null,
+  ).pipe(Atom.withLabel(`mobile-speech-configured:${environmentId}`)),
+);
+
+export function useSpeechConfigured(environmentId: EnvironmentId): boolean {
+  return useAtomValue(speechConfiguredAtom(environmentId));
 }

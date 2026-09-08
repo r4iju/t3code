@@ -143,7 +143,8 @@ describe("Speech", () => {
       const fs = yield* FileSystem.FileSystem;
       const touched = yield* fs.stat(read.asset.path);
       const mtime = Option.getOrThrow(touched.mtime);
-      expect(mtime.getFullYear()).toBeLessThanOrEqual(new Date().getFullYear());
+      const year2100Ms = 4_102_444_800_000;
+      expect(mtime.getTime()).toBeLessThan(year2100Ms);
 
       const concurrent = yield* Effect.all(
         [speech.synthesizeText("Another line."), speech.synthesizeText("Another line.")],

@@ -188,8 +188,8 @@ export const make = Effect.gen(function* () {
         const cached = yield* findCached(hash).pipe(Effect.mapError(cacheError));
         if (cached !== null) {
           const now = yield* Clock.currentTimeMillis;
-          // Node reads bare numbers as seconds; a Date keeps the LRU order honest.
-          const touchedAt = new Date(now);
+          // Node reads bare numbers as seconds, so convert the millisecond clock.
+          const touchedAt = now / 1000;
           yield* fs
             .utimes(path.join(config.speechDir, cached), touchedAt, touchedAt)
             .pipe(Effect.ignore);

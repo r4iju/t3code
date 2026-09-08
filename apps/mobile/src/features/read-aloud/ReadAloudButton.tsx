@@ -6,8 +6,7 @@ import { memo, useCallback, useMemo } from "react";
 import { ActivityIndicator, type ColorValue, Pressable } from "react-native";
 
 import { SymbolView } from "../../components/AppSymbol";
-import { useEnvironmentServerConfig } from "../../state/entities";
-import { readAloud, useReadAloudSelector } from "./readAloud";
+import { readAloud, useReadAloudSelector, useSpeechConfigured } from "./readAloud";
 import {
   resolveReadAloudButtonPhase,
   resolveReadAloudButtonPresentation,
@@ -24,7 +23,7 @@ export const ReadAloudButton = memo(function ReadAloudButton(props: {
   readonly iconSize?: number;
 }) {
   const { environmentId, threadId, messageId, text } = props;
-  const speechEnabled = useEnvironmentServerConfig(environmentId)?.settings.speech != null;
+  const speechEnabled = useSpeechConfigured(environmentId);
   const speakable = useMemo(() => prepareSpeechText(text).length > 0, [text]);
   const key = readAloudMessageKey({ environmentId, threadId, messageId });
   const phase = useReadAloudSelector(

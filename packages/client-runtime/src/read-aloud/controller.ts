@@ -111,15 +111,19 @@ export class ReadAloudController<Request extends ReadAloudRequest = ReadAloudReq
     }
     if (operation !== this.operation || abortController.signal.aborted) return;
 
+    // Short or cached clips can end before `play` resolves; that outcome wins.
+    let settled = false;
     try {
       await this.dependencies.player.play(url, {
         onEnded: () => {
           if (operation !== this.operation) return;
+          settled = true;
           this.abortController = null;
           this.setState(READ_ALOUD_IDLE_STATE);
         },
         onError: (message) => {
           if (operation !== this.operation) return;
+          settled = true;
           this.abortController = null;
           this.dependencies.player.stop();
           this.setState({ phase: "error", targetKey: request.key, error: message });
@@ -132,7 +136,7 @@ export class ReadAloudController<Request extends ReadAloudRequest = ReadAloudReq
       this.setState({ phase: "error", targetKey: request.key, error: errorMessage(error) });
       return;
     }
-    if (operation !== this.operation || abortController.signal.aborted) return;
+    if (settled || operation !== this.operation || abortController.signal.aborted) return;
     this.setState({ phase: "playing", targetKey: request.key, error: null });
   }
 
