@@ -2473,14 +2473,15 @@ const makeWsRpcLayer = (
           observeRpcEffect(
             WS_METHODS.speechSynthesize,
             Effect.gen(function* () {
-              if (input._tag === "sample") {
-                return yield* speech.synthesizeText(SPEECH_SAMPLE_TEXT);
+              const { source, segment } = input;
+              if (source._tag === "sample") {
+                return yield* speech.synthesizeText(SPEECH_SAMPLE_TEXT, segment);
               }
               const message = yield* projectionSnapshotQuery
-                .getTurnStartMessage(input)
+                .getTurnStartMessage(source)
                 .pipe(Effect.mapError((cause) => new SpeechEnvironmentError({ cause })));
-              const text = yield* resolveSpeechMessageText(message, input);
-              return yield* speech.synthesizeText(text);
+              const text = yield* resolveSpeechMessageText(message, source);
+              return yield* speech.synthesizeText(text, segment);
             }),
             { "rpc.aggregate": "speech" },
           ),

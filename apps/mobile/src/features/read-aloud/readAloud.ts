@@ -13,7 +13,7 @@ import {
 import {
   DEFAULT_READ_ALOUD_PLAYBACK_RATE,
   type EnvironmentId,
-  type SpeechSynthesizeInput,
+  type SpeechSource,
   WS_METHODS,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
@@ -31,7 +31,7 @@ import { createReadAloudPlayer } from "./expoAudioReadAloudPlayer";
 export type ReadAloudRequest = {
   readonly key: string;
   readonly environmentId: EnvironmentId;
-  readonly input: SpeechSynthesizeInput;
+  readonly input: SpeechSource;
 };
 
 const speechSynthesize = createEnvironmentRpcCommand(connectionAtomRuntime, {
@@ -43,8 +43,9 @@ const speechSynthesize = createEnvironmentRpcCommand(connectionAtomRuntime, {
 // the result, and a finished synthesis stays cached on the environment.
 function resolveAudio(
   request: ReadAloudRequest,
+  segment: number,
   signal: AbortSignal,
-): Promise<{ readonly url: string }> {
+): Promise<{ readonly url: string; readonly segmentCount: number }> {
   return withPreparedConnection(
     {
       registry: appAtomRegistry,
@@ -55,13 +56,13 @@ function resolveAudio(
       const result = await runAtomCommand(
         appAtomRegistry,
         speechSynthesize,
-        { environmentId: request.environmentId, input: request.input },
+        { environmentId: request.environmentId, input: { source: request.input, segment } },
         { reportFailure: false },
       );
       if (result._tag === "Failure") throw squashAtomCommandFailure(result);
       const url = resolveAssetUrl(connection.httpBaseUrl, result.value.relativeUrl);
       if (url === null) throw new Error("Could not resolve the audio URL.");
-      return { url };
+      return { url, segmentCount: result.value.segmentCount };
     },
   );
 }
@@ -97,9 +98,9 @@ function ensurePlaybackRateSynced(): void {
 
 const controller = new ReadAloudController<ReadAloudRequest>({
   player,
-  resolveAudio: (request, signal) => {
+  resolveAudio: (request, segment, signal) => {
     ensurePlaybackRateSynced();
-    return resolveAudio(request, signal);
+    return resolveAudio(request, segment, signal);
   },
   beforeStart: () => (voiceInputActive ? "Stop recording before reading aloud." : null),
   onStateChange: (next) => {

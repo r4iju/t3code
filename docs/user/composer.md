@@ -74,8 +74,10 @@ voice names that endpoint expects, then use **Test voice** to confirm it works.
 Mobile reads whatever the environment has configured; it cannot change it.
 
 Synthesis runs on the environment and the audio is cached there, so replaying a
-response is instant and repeated listens cost nothing. Only the message text is
-sent to the speech service you configured.
+response is instant and repeated listens cost nothing. Long responses are
+synthesized a few sentences at a time: playback starts as soon as the opening
+sentences are ready and the rest is prepared while you listen. Only the message
+text is sent to the speech service you configured.
 
 On web and desktop, the command palette offers **Read latest response aloud**,
 which you can bind to a shortcut under **Settings → Keybindings**.

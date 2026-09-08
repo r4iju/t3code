@@ -2,10 +2,12 @@
  * Speech — read-aloud synthesis owned by the environment.
  *
  * Turns assistant Markdown into audio via the configured OpenAI-shaped
- * endpoint, caches the result under a content hash in `speechDir`, and hands
- * back a signed asset URL. The cache is a size-capped LRU keyed on everything
- * that changes the sound (endpoint, model, voice, prepared text), so replaying
- * a message never costs a second request.
+ * endpoint, one segment per call, caches each segment under a content hash in
+ * `speechDir`, and hands back a signed asset URL. Segmenting is deterministic
+ * from the prepared text, so clients ask for segment 0, 1, 2… and play each as
+ * it lands instead of waiting for the whole message. The cache is a
+ * size-capped LRU keyed on everything that changes the sound (endpoint, model,
+ * voice, segment text), so replaying a message never costs a second request.
  *
  * @module speech/Speech
  */
@@ -15,11 +17,13 @@ import {
   SpeechEnvironmentError,
   SpeechNotConfiguredError,
   SpeechNothingToReadError,
-  SpeechTooLongError,
+  SpeechSegmentNotFoundError,
+  SpeechServiceError,
   type SpeechSynthesizeError,
   type SpeechSynthesizeResult,
+  SpeechTooLongError,
 } from "@t3tools/contracts";
-import { prepareSpeechText, splitSpeechText } from "@t3tools/shared/speechText";
+import { prepareSpeechText, splitSpeechSegments } from "@t3tools/shared/speechText";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -40,19 +44,40 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { synthesizeSpeechChunk } from "./OpenAiSpeechClient.ts";
-import { concatenateSpeechAudio, type SpeechAudioExtension } from "./speechAudio.ts";
 
 export class Speech extends Context.Service<
   Speech,
   {
-    /** Speaks Markdown from an assistant message (or the sample sentence). */
+    /** Speaks one segment of Markdown from an assistant message (or the sample sentence). */
     readonly synthesizeText: (
       text: string,
+      segment: number,
     ) => Effect.Effect<SpeechSynthesizeResult, SpeechSynthesizeError>;
   }
 >()("t3/speech/Speech") {}
 
 export const SPEECH_CACHE_MAX_BYTES = 200 * 1024 * 1024;
+
+type SpeechAudioExtension = "mp3" | "wav" | "ogg" | "aac" | "flac" | "webm";
+
+// The asset route derives the mime type back from the cached file's extension.
+const EXTENSION_BY_MIME_TYPE: Record<string, SpeechAudioExtension> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/mpeg3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/wave": "wav",
+  "audio/vnd.wave": "wav",
+  "audio/ogg": "ogg",
+  "audio/opus": "ogg",
+  "audio/aac": "aac",
+  "audio/x-aac": "aac",
+  "audio/mp4": "aac",
+  "audio/flac": "flac",
+  "audio/x-flac": "flac",
+  "audio/webm": "webm",
+};
 const CACHE_EXTENSIONS: ReadonlyArray<SpeechAudioExtension> = [
   "mp3",
   "wav",
@@ -121,7 +146,7 @@ export const make = Effect.gen(function* () {
 
   const cacheError = (cause: unknown) => new SpeechCacheError({ cause });
 
-  // Two plays of the same message wait on one synthesis instead of racing.
+  // Two plays of the same segment wait on one synthesis instead of racing.
   const inflight = new Map<string, { readonly lock: Semaphore.Semaphore; count: number }>();
   const withKeyLock = <A, E, R>(key: string, effect: Effect.Effect<A, E, R>) =>
     Effect.acquireUseRelease(
@@ -148,7 +173,10 @@ export const make = Effect.gen(function* () {
     return null;
   });
 
-  const issueResult = Effect.fn("Speech.issueResult")(function* (cacheKey: string) {
+  const issueResult = Effect.fn("Speech.issueResult")(function* (
+    cacheKey: string,
+    segmentCount: number,
+  ) {
     const issued = yield* issueAssetUrl({ resource: { _tag: "speech", cacheKey } }).pipe(
       Effect.mapError(cacheError),
     );
@@ -156,11 +184,13 @@ export const make = Effect.gen(function* () {
       relativeUrl: issued.relativeUrl,
       expiresAt: issued.expiresAt,
       mimeType: speechCacheKeyMimeType(cacheKey) ?? "audio/mpeg",
+      segmentCount,
     } satisfies SpeechSynthesizeResult;
   });
 
   const synthesizeText = Effect.fn("Speech.synthesizeText")(function* (
     text: string,
+    segment: number,
   ): Effect.fn.Return<SpeechSynthesizeResult, SpeechSynthesizeError> {
     const settings = yield* settingsService.getSettings.pipe(
       Effect.mapError((cause) => new SpeechEnvironmentError({ cause })),
@@ -175,10 +205,15 @@ export const make = Effect.gen(function* () {
         limit: SPEECH_MAX_TOTAL_CHARS,
       });
     }
+    const segments = splitSpeechSegments(prepared, speech.maxCharsPerRequest);
+    const segmentText = segments[segment];
+    if (segmentText === undefined) {
+      return yield* new SpeechSegmentNotFoundError({ segment, segmentCount: segments.length });
+    }
     const hash = yield* crypto
       .digest(
         "SHA-256",
-        textEncoder.encode(`${speech.baseUrl}\n${speech.model}\n${speech.voice}\n${prepared}`),
+        textEncoder.encode(`${speech.baseUrl}\n${speech.model}\n${speech.voice}\n${segmentText}`),
       )
       .pipe(Effect.map(Encoding.encodeHex), Effect.mapError(cacheError));
 
@@ -193,20 +228,23 @@ export const make = Effect.gen(function* () {
           yield* fs
             .utimes(path.join(config.speechDir, cached), touchedAt, touchedAt)
             .pipe(Effect.ignore);
-          return yield* issueResult(cached);
+          return yield* issueResult(cached, segments.length);
         }
-        const chunks = yield* Effect.forEach(
-          splitSpeechText(prepared, speech.maxCharsPerRequest),
-          (chunk) => synthesizeSpeechChunk(speech, chunk),
-        );
-        const audio = yield* concatenateSpeechAudio(chunks);
-        const cacheKey = `${hash}.${audio.extension}`;
+        const audio = yield* synthesizeSpeechChunk(speech, segmentText);
+        const extension = EXTENSION_BY_MIME_TYPE[audio.mimeType];
+        if (extension === undefined) {
+          return yield* new SpeechServiceError({
+            reason: "unsupported-format",
+            detail: `Unknown audio type "${audio.mimeType}".`,
+          });
+        }
+        const cacheKey = `${hash}.${extension}`;
         yield* writeFileAtomically({
           filePath: path.join(config.speechDir, cacheKey),
           contents: audio.bytes,
         }).pipe(Effect.mapError(cacheError));
         yield* trimSpeechCache(config.speechDir, SPEECH_CACHE_MAX_BYTES).pipe(Effect.ignore);
-        return yield* issueResult(cacheKey);
+        return yield* issueResult(cacheKey, segments.length);
       }),
     ).pipe(Effect.provideContext(assetContext));
   });

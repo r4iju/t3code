@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   isReadAloudActive,
+  type ReadAloudAudio,
   ReadAloudController,
   type ReadAloudPlaybackCallbacks,
   type ReadAloudPlayer,
@@ -20,6 +21,7 @@ function deferred<T>() {
 
 class TestPlayer implements ReadAloudPlayer {
   readonly played: string[] = [];
+  readonly preloaded: string[] = [];
   stops = 0;
   callbacks: ReadAloudPlaybackCallbacks | null = null;
   private pending = deferred<void>();
@@ -31,6 +33,10 @@ class TestPlayer implements ReadAloudPlayer {
     this.callbacks = callbacks;
     this.pending = deferred<void>();
     return this.pending.promise;
+  }
+
+  preload(url: string): void {
+    this.preloaded.push(url);
   }
 
   stop(): void {
@@ -48,25 +54,40 @@ class TestPlayer implements ReadAloudPlayer {
 
 type Request = { readonly key: string };
 
+const audioUrl = (key: string, segment: number) => `https://env/audio/${key}-${segment}.mp3`;
+
 function createHarness(options?: {
-  readonly resolveAudio?: (request: Request, signal: AbortSignal) => Promise<{ url: string }>;
+  readonly segmentCount?: number;
+  /** Segments listed here resolve only when the returned gate is released. */
+  readonly gated?: ReadonlyArray<number>;
+  readonly failing?: ReadonlyArray<number>;
+  readonly resolveAudio?: (
+    request: Request,
+    segment: number,
+    signal: AbortSignal,
+  ) => Promise<ReadAloudAudio>;
   readonly beforeStart?: (request: Request) => string | null;
 }) {
   const player = new TestPlayer();
   const states: ReadAloudState[] = [];
-  const resolved: { request: Request; signal: AbortSignal }[] = [];
+  const resolved: { request: Request; segment: number; signal: AbortSignal }[] = [];
+  const gates = new Map<number, ReturnType<typeof deferred<void>>>();
+  for (const segment of options?.gated ?? []) gates.set(segment, deferred<void>());
   const controller = new ReadAloudController<Request>({
     player,
     resolveAudio:
       options?.resolveAudio ??
-      (async (request, signal) => {
-        resolved.push({ request, signal });
-        return { url: `https://env/audio/${request.key}.mp3` };
+      (async (request, segment, signal) => {
+        resolved.push({ request, segment, signal });
+        await gates.get(segment)?.promise;
+        if (options?.failing?.includes(segment)) throw new Error(`segment ${segment} failed`);
+        return { url: audioUrl(request.key, segment), segmentCount: options?.segmentCount ?? 1 };
       }),
     ...(options?.beforeStart ? { beforeStart: options.beforeStart } : {}),
     onStateChange: (state) => states.push(state),
   });
-  return { controller, player, states, resolved };
+  const release = (segment: number) => gates.get(segment)!.resolve();
+  return { controller, player, states, resolved, release };
 }
 
 // Drains the microtask chain the controller awaits through, without timers.
@@ -81,7 +102,7 @@ describe("ReadAloudController", () => {
     const start = controller.start({ key: "m1" });
     expect(controller.currentState).toEqual({ phase: "loading", targetKey: "m1", error: null });
     await flush();
-    expect(player.played).toEqual(["https://env/audio/m1.mp3"]);
+    expect(player.played).toEqual([audioUrl("m1", 0)]);
     player.started();
     await start;
     expect(controller.currentState).toEqual({ phase: "playing", targetKey: "m1", error: null });
@@ -90,6 +111,99 @@ describe("ReadAloudController", () => {
     player.callbacks?.onEnded();
     expect(controller.currentState.phase).toBe("idle");
     expect(states.map((state) => state.phase)).toEqual(["loading", "playing", "idle"]);
+  });
+
+  it("plays segments in order while resolving the next ones ahead", async () => {
+    const { controller, player, states, resolved } = createHarness({ segmentCount: 3 });
+    const start = controller.start({ key: "m1" });
+    await flush();
+    player.started();
+    await start;
+    expect(resolved.map((entry) => entry.segment)).toEqual([0, 1, 2]);
+    expect(player.played).toEqual([audioUrl("m1", 0)]);
+    // Only the segment right after the playing one is buffered.
+    expect(player.preloaded).toEqual([audioUrl("m1", 1)]);
+
+    player.callbacks?.onEnded();
+    expect(player.played).toEqual([audioUrl("m1", 0), audioUrl("m1", 1)]);
+    expect(player.preloaded).toEqual([audioUrl("m1", 1), audioUrl("m1", 2)]);
+    player.started();
+    await flush();
+    player.callbacks?.onEnded();
+    expect(player.played).toHaveLength(3);
+    player.started();
+    await flush();
+    player.callbacks?.onEnded();
+
+    expect(controller.currentState.phase).toBe("idle");
+    expect(player.stops).toBeGreaterThanOrEqual(1);
+    expect(states.map((state) => state.phase)).toEqual([
+      "loading",
+      "playing",
+      "playing",
+      "playing",
+      "idle",
+    ]);
+  });
+
+  it("shows loading while the next segment is still being synthesized", async () => {
+    const { controller, player, release } = createHarness({ segmentCount: 2, gated: [1] });
+    const start = controller.start({ key: "m1" });
+    await flush();
+    player.started();
+    await start;
+
+    player.callbacks?.onEnded();
+    expect(controller.currentState).toEqual({ phase: "loading", targetKey: "m1", error: null });
+    expect(player.played).toHaveLength(1);
+
+    release(1);
+    await flush();
+    expect(player.played).toEqual([audioUrl("m1", 0), audioUrl("m1", 1)]);
+    player.started();
+    await flush();
+    expect(controller.currentState.phase).toBe("playing");
+  });
+
+  it("surfaces a failed segment only once playback reaches it", async () => {
+    const { controller, player } = createHarness({ segmentCount: 3, failing: [2] });
+    const start = controller.start({ key: "m1" });
+    await flush();
+    player.started();
+    await start;
+    expect(controller.currentState.phase).toBe("playing");
+
+    player.callbacks?.onEnded();
+    player.started();
+    await flush();
+    expect(controller.currentState.phase).toBe("playing");
+
+    player.callbacks?.onEnded();
+    expect(controller.currentState).toEqual({
+      phase: "error",
+      targetKey: "m1",
+      error: "segment 2 failed",
+    });
+    expect(player.played).toHaveLength(2);
+  });
+
+  it("stop abandons the segments still being resolved", async () => {
+    const { controller, player, release, resolved } = createHarness({
+      segmentCount: 3,
+      gated: [1],
+    });
+    const start = controller.start({ key: "m1" });
+    await flush();
+    player.started();
+    await start;
+
+    controller.stop();
+    expect(controller.currentState.phase).toBe("idle");
+    expect(resolved[1]?.signal.aborted).toBe(true);
+    release(1);
+    await flush();
+    expect(player.played).toHaveLength(1);
+    expect(resolved.map((entry) => entry.segment)).toEqual([0, 1]);
   });
 
   it("stop returns to idle and releases the player", async () => {
@@ -118,7 +232,7 @@ describe("ReadAloudController", () => {
     await flush();
     player.started();
     await flush();
-    expect(player.played).toEqual(["https://env/audio/m1.mp3", "https://env/audio/m2.mp3"]);
+    expect(player.played).toEqual([audioUrl("m1", 0), audioUrl("m2", 0)]);
     expect(controller.currentState).toMatchObject({ phase: "playing", targetKey: "m2" });
 
     controller.toggle({ key: "m2" });
@@ -126,11 +240,11 @@ describe("ReadAloudController", () => {
   });
 
   it("ignores a resolution that finishes after stop", async () => {
-    const pending = deferred<{ url: string }>();
+    const pending = deferred<ReadAloudAudio>();
     const { controller, player } = createHarness({ resolveAudio: () => pending.promise });
     void controller.start({ key: "m1" });
     controller.stop();
-    pending.resolve({ url: "late" });
+    pending.resolve({ url: "late", segmentCount: 1 });
     await flush();
     expect(player.played).toEqual([]);
     expect(controller.currentState.phase).toBe("idle");
