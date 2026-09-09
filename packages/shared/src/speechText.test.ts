@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   normalizeSpokenText,
+  planSpeechSegments,
   prepareSpeechBlocks,
   prepareSpeechText,
   renderSpeechText,
@@ -65,11 +66,14 @@ describe("prepareSpeechText", () => {
     expect(prepareSpeechText(markdown)).toBe("Table with 1 row. Columns: a, b, c, d, e.");
   });
 
-  it("gives each table row its own block so a pausing dialect separates them", () => {
+  it("keeps the table's Markdown on the block so it can be summarized later", () => {
     const markdown = ["| step | result |", "| --- | --- |", "| before | flat |"].join("\n");
     expect(prepareSpeechBlocks(markdown)).toEqual([
-      { kind: "paragraph", text: "Table. Columns: step, result." },
-      { kind: "list-item", text: "before: flat." },
+      {
+        kind: "table",
+        text: "Table. Columns: step, result.\n\nbefore: flat.",
+        source: markdown,
+      },
     ]);
   });
 
@@ -314,5 +318,54 @@ describe("renderSpeechText", () => {
         { dialect: "kokoro", voice: "af_heart", cjkVoice: "" },
       ),
     ).toBe("One. [pause:0.35s]\n\nTwo.");
+  });
+});
+
+describe("planSpeechSegments", () => {
+  const kokoro = { dialect: "kokoro", voice: "af_heart", cjkVoice: "" } as const;
+  const plain = { dialect: "plain", voice: "af_heart", cjkVoice: "" } as const;
+
+  it("gives a table its own segment so a summary cannot move another boundary", () => {
+    const markdown = [
+      "Here are the results.",
+      "",
+      "| step | result |",
+      "| --- | --- |",
+      "| before | flat |",
+      "",
+      "That is all.",
+    ].join("\n");
+    const plans = planSpeechSegments(prepareSpeechBlocks(markdown), plain, 4096);
+    expect(plans).toEqual([
+      { kind: "text", text: "Here are the results." },
+      {
+        kind: "table",
+        source: "| step | result |\n| --- | --- |\n| before | flat |",
+        fallback: "Table. Columns: step, result.\n\nbefore: flat.",
+      },
+      { kind: "text", text: "That is all." },
+    ]);
+  });
+
+  it("counts the same segments whatever a summary would say", () => {
+    const markdown = ["Intro.", "", "| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
+    const blocks = prepareSpeechBlocks(markdown);
+    expect(planSpeechSegments(blocks, plain, 4096)).toHaveLength(2);
+    expect(planSpeechSegments(blocks, kokoro, 4096)).toHaveLength(2);
+  });
+
+  it("paces table rows like blocks in a dialect that pauses", () => {
+    const markdown = ["| step | result |", "| --- | --- |", "| before | flat |"].join("\n");
+    const plans = planSpeechSegments(prepareSpeechBlocks(markdown), kokoro, 4096);
+    expect(plans[0]).toEqual({
+      kind: "table",
+      source: markdown,
+      fallback: "Table. Columns: step, result. [pause:0.35s]\n\nbefore: flat.",
+    });
+  });
+
+  it("leaves a message without tables as one run of text segments", () => {
+    const plans = planSpeechSegments(prepareSpeechBlocks("One. Two."), plain, 4096);
+    expect(plans).toEqual([{ kind: "text", text: "One. Two." }]);
   });
 });

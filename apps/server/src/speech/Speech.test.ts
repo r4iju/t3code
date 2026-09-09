@@ -40,6 +40,8 @@ const settings: SpeechSettings = {
   maxCharsPerRequest: 4096,
   dialect: "plain",
   cjkVoice: "",
+  summaryBaseUrl: "",
+  summaryModel: "",
 };
 
 const RequestBody = Schema.Struct({
@@ -50,6 +52,12 @@ const RequestBody = Schema.Struct({
   allow_voice_tags: Schema.optionalKey(Schema.Boolean),
 });
 const decodeRequest = Schema.decodeUnknownSync(Schema.fromJsonString(RequestBody));
+const SummaryRequestBody = Schema.Struct({
+  model: Schema.String,
+  messages: Schema.Array(Schema.Struct({ role: Schema.String, content: Schema.String })),
+  reasoning_effort: Schema.String,
+});
+const decodeSummaryRequest = Schema.decodeUnknownSync(Schema.fromJsonString(SummaryRequestBody));
 const text = new TextEncoder();
 const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
@@ -63,10 +71,26 @@ function fixture(options?: {
   readonly speech?: SpeechSettings | null;
   readonly respond?: (body: typeof RequestBody.Type) => Response;
   readonly unreachable?: boolean;
+  /** Answers the summarizer endpoint; absent means it is not reachable. */
+  readonly summary?: () => Response;
 }) {
   const requests: RecordedRequest[] = [];
+  const summaryRequests: Array<typeof SummaryRequestBody.Type> = [];
   const http = HttpClient.make((request) =>
     Effect.suspend(() => {
+      if (request.url.endsWith("/chat/completions")) {
+        if (request.body._tag !== "Uint8Array") throw new Error("expected a JSON body");
+        summaryRequests.push(decodeSummaryRequest(decodeText(request.body.body)));
+        const summary = options?.summary;
+        if (summary === undefined) {
+          return Effect.fail(
+            new HttpClientError.HttpClientError({
+              reason: new HttpClientError.TransportError({ request, description: "ECONNREFUSED" }),
+            }),
+          );
+        }
+        return Effect.succeed(HttpClientResponse.fromWeb(request, summary()));
+      }
       const body =
         request.body._tag === "Uint8Array" ? decodeRequest(decodeText(request.body.body)) : null;
       if (!body) throw new Error("expected a JSON body");
@@ -97,7 +121,7 @@ function fixture(options?: {
     ),
     Layer.provideMerge(baseLayer),
   );
-  return { requests, layer };
+  return { requests, summaryRequests, layer };
 }
 
 const readResult = (relativeUrl: string) =>
@@ -117,6 +141,75 @@ describe("Speech", () => {
       const error = yield* Effect.flip(speech.synthesizeText("Hello there.", 0));
       expect(error._tag).toBe("SpeechNotConfiguredError");
     }).pipe(Effect.provide(fixture({ speech: null }).layer)),
+  );
+
+  const TABLE = "| step | result |\n| --- | --- |\n| before | flat |";
+  const withSummarizer = {
+    ...settings,
+    summaryBaseUrl: "http://127.0.0.1:11434/v1",
+    summaryModel: "qwen3.6:35b-a3b",
+  };
+  const chatResponse = (content: unknown) =>
+    new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+      headers: { "content-type": "application/json" },
+    });
+
+  it.effect("speaks a summary of a table when a summarizer is configured", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: withSummarizer,
+        summary: () => chatResponse("  The table compares before and after.  "),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText(TABLE, 0);
+      expect(test.requests[0]!.body.input).toBe("The table compares before and after.");
+      // Reasoning would spend the token budget and answer with empty content.
+      expect(test.summaryRequests[0]!.reasoning_effort).toBe("none");
+      expect(test.summaryRequests[0]!.messages[0]!.content).toContain("before");
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("reads the table itself when the summarizer answers with nothing", () =>
+    Effect.gen(function* () {
+      const test = fixture({ speech: withSummarizer, summary: () => chatResponse("   ") });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText(TABLE, 0);
+      expect(test.requests[0]!.body.input).toBe("Table. Columns: step, result.\n\nbefore: flat.");
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("reads the table itself when the summarizer cannot be reached", () =>
+    Effect.gen(function* () {
+      const test = fixture({ speech: withSummarizer });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const result = yield* speech.synthesizeText(TABLE, 0);
+      expect(result.segmentCount).toBe(1);
+      expect(test.requests[0]!.body.input).toBe("Table. Columns: step, result.\n\nbefore: flat.");
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("never asks the summarizer when none is configured", () =>
+    Effect.gen(function* () {
+      const test = fixture();
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText(TABLE, 0);
+      expect(test.summaryRequests).toHaveLength(0);
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("keeps the segment count while a table waits on its summary", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: withSummarizer,
+        summary: () => chatResponse("A summary far longer than the table reading it replaces."),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const intro = yield* speech.synthesizeText(`Intro.\n\n${TABLE}\n\nDone.`, 0);
+      const table = yield* speech.synthesizeText(`Intro.\n\n${TABLE}\n\nDone.`, 1);
+      expect(intro.segmentCount).toBe(3);
+      expect(table.segmentCount).toBe(3);
+      expect(test.requests[0]!.body.input).toBe("Intro.");
+    }).pipe(Effect.provide(baseLayer)),
   );
 
   it.effect("keeps dialect markers out of a plain endpoint's request", () =>

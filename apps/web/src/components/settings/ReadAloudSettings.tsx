@@ -5,6 +5,7 @@ import {
   READ_ALOUD_PLAYBACK_RATES,
   SPEECH_DIALECT_LABELS,
   SPEECH_DIALECTS,
+  SPEECH_SUMMARY_DEFAULT_BASE_URL,
   type SpeechDialect,
   type SpeechSettings,
 } from "@t3tools/contracts";
@@ -201,6 +202,38 @@ function ReadAloudForm({
               placeholder="jf_alpha"
               value={form.cjkVoice}
               onChange={(event) => update({ cjkVoice: event.target.value })}
+            />
+          }
+        />
+      ) : null}
+      <SettingsRow
+        {...searchableSetting("read-aloud-summary-url")}
+        serverScoped
+        description="A chat model that turns a table into a sentence or two instead of reading every cell. Any OpenAI-shaped endpoint, meant for a local one. Leave blank to read tables out."
+        status={errors.summaryBaseUrl}
+        control={
+          <Input
+            size="sm"
+            className="sm:w-72"
+            aria-label="Table summary URL"
+            placeholder={SPEECH_SUMMARY_DEFAULT_BASE_URL}
+            value={form.summaryBaseUrl}
+            onChange={(event) => update({ summaryBaseUrl: event.target.value })}
+          />
+        }
+      />
+      {form.summaryBaseUrl.trim().length > 0 ? (
+        <SettingsRow
+          {...searchableSetting("read-aloud-summary-model")}
+          serverScoped
+          status={errors.summaryModel}
+          control={
+            <Input
+              size="sm"
+              className="sm:w-72"
+              aria-label="Table summary model"
+              value={form.summaryModel}
+              onChange={(event) => update({ summaryModel: event.target.value })}
             />
           }
         />

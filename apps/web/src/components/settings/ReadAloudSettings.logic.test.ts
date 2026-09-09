@@ -26,6 +26,8 @@ const savedSettings = {
   maxCharsPerRequest: 1000,
   dialect: "plain",
   cjkVoice: "",
+  summaryBaseUrl: "",
+  summaryModel: "",
 } as const;
 
 describe("presets", () => {
@@ -39,6 +41,8 @@ describe("presets", () => {
       maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
       dialect: "plain",
       cjkVoice: "",
+      summaryBaseUrl: "",
+      summaryModel: "",
     });
   });
 
@@ -52,6 +56,8 @@ describe("presets", () => {
       maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
       dialect: "kokoro",
       cjkVoice: SPEECH_DEFAULT_CJK_VOICE,
+      summaryBaseUrl: "",
+      summaryModel: "",
     });
   });
 });
@@ -72,6 +78,8 @@ describe("patches", () => {
       maxCharsPerRequest: " 1500 ",
       dialect: "plain",
       cjkVoice: " jf_alpha ",
+      summaryBaseUrl: "",
+      summaryModel: "",
     });
     expect(result).toEqual({
       ok: true,
@@ -84,6 +92,8 @@ describe("patches", () => {
         dialect: "plain",
         // Dropped with the dialect that cannot route a voice.
         cjkVoice: "",
+        summaryBaseUrl: "",
+        summaryModel: "",
       },
     });
   });
@@ -133,6 +143,23 @@ describe("validation", () => {
       validateReadAloudForm({ ...validForm, maxCharsPerRequest: String(SPEECH_MAX_TOTAL_CHARS) })
         .ok,
     ).toBe(true);
+  });
+
+  it("rejects a summarizer with only half its configuration", () => {
+    const url = validateReadAloudForm({ ...validForm, summaryBaseUrl: "http://x.test/v1" });
+    expect(!url.ok && Object.keys(url.errors)).toEqual(["summaryModel"]);
+    const model = validateReadAloudForm({ ...validForm, summaryModel: "qwen" });
+    expect(!model.ok && Object.keys(model.errors)).toEqual(["summaryBaseUrl"]);
+  });
+
+  it("accepts a complete summarizer and trims it", () => {
+    const result = validateReadAloudForm({
+      ...validForm,
+      summaryBaseUrl: " http://127.0.0.1:11434/v1 ",
+      summaryModel: " qwen3.6:35b-a3b ",
+    });
+    expect(result.ok && result.settings.summaryBaseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(result.ok && result.settings.summaryModel).toBe("qwen3.6:35b-a3b");
   });
 
   it("allows an empty API key for unauthenticated local servers", () => {
