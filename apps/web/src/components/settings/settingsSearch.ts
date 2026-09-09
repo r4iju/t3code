@@ -332,6 +332,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "environment-defaults",
   },
   {
+    id: "read-aloud-dialect",
+    title: "Speech dialect",
+    to: "/settings/general",
+    targetId: "read-aloud-enabled",
+    searchTerms: ["kokoro pauses markers inline tags pronunciation"],
+    primaryOnly: true,
+  },
+  {
+    id: "read-aloud-cjk-voice",
+    title: "Speech voice for CJK text",
+    to: "/settings/general",
+    targetId: "read-aloud-enabled",
+    searchTerms: ["japanese chinese korean kanji kana hangul second voice"],
+    primaryOnly: true,
+  },
+  {
     id: "read-aloud-max-chars",
     title: "Max characters per speech request",
     to: "/settings/general",

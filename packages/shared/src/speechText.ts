@@ -2,7 +2,13 @@
  * Turns assistant Markdown into prose a speech service should read. Both the
  * environment (to synthesize) and the clients (to decide whether a message has
  * anything to read) run this, so they always agree on the spoken text.
+ *
+ * Preparing happens in two steps. `prepareSpeechBlocks` is backend-neutral: it
+ * flattens Markdown and rewrites the tokens every speech model mispronounces.
+ * `renderSpeechText` then adds the inline markers of the configured dialect,
+ * which only some endpoints understand.
  */
+import type { SpeechDialect } from "@t3tools/contracts";
 
 export const SPEECH_TABLE_OMITTED_NOTE = "Table omitted.";
 
@@ -19,8 +25,53 @@ const TERMINAL_PUNCTUATION = /[.!?:;,]$/;
 const CODEX_DIRECTIVE =
   /:{1,3}(?:codex-file-citation|artifact-template)(?:\[([^\]]*)\])?(?:\{[^}]*\})?/g;
 
+// A ticket key reads as a word ("SUP-1402" becomes "sup fourteen oh two")
+// unless its letters are separated.
+const TICKET_ID = /\b([A-Z]{2,6})-(\d{1,6})\b/g;
+// Lowercase hex with at least one digit and one letter: a commit hash, which a
+// model otherwise reads as a mangled word. Plain numbers and words are excluded.
+const HEX_HASH = /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g;
+// The leading group keeps a URL's own path from matching after its "//".
+const PATH_LIKE = /(^|[^/\w.-])([\w.-]+(?:\/[\w.-]+)+)/g;
+const FILE_EXTENSION = /\.[A-Za-z]{1,5}$/;
+const ISSUE_NUMBER = /#(\d+)\b/g;
+const VERSION_TAG = /\bv(\d+(?:\.\d+)+)\b/g;
+// Three or more parts is a version or an address, never a decimal.
+const DOTTED_NUMBER = /\b\d+(?:\.\d+){2,}\b/g;
+/** Hashes are spoken in their short form; nobody dictates forty hex characters. */
+const SPOKEN_HASH_CHARS = 8;
+
+function spell(token: string): string {
+  return token.split("").join(" ");
+}
+
+/** Only the file name is worth hearing; the directories are a recital of slashes. */
+function spokenPath(path: string): string {
+  const parts = path.split("/");
+  const last = parts[parts.length - 1] ?? path;
+  return parts.length > 2 || FILE_EXTENSION.test(last) ? last : path;
+}
+
+/**
+ * Rewrites what speech models reliably get wrong about the text agents produce:
+ * identifiers, hashes, paths and versions. Every rule is plain prose in, plain
+ * prose out, so it applies whichever endpoint is configured.
+ */
+export function normalizeSpokenText(text: string): string {
+  return text
+    .replace(VERSION_TAG, (_match, digits: string) => `version ${digits}`)
+    .replace(DOTTED_NUMBER, (match) => match.split(".").join(" point "))
+    .replace(PATH_LIKE, (_match, before: string, path: string) => `${before}${spokenPath(path)}`)
+    .replace(
+      TICKET_ID,
+      (_match, letters: string, digits: string) => `${letters.split("").join("-")} ${digits}`,
+    )
+    .replace(HEX_HASH, (match) => spell(match.slice(0, SPOKEN_HASH_CHARS)))
+    .replace(ISSUE_NUMBER, (_match, digits: string) => `number ${digits}`);
+}
+
 function stripInlineMarkup(line: string): string {
-  return (
+  return normalizeSpokenText(
     line
       .replace(CODEX_DIRECTIVE, (_match, label: string | undefined) => label ?? "")
       // Images read as their alt text; links as their label.
@@ -29,7 +80,9 @@ function stripInlineMarkup(line: string): string {
       .replace(/\[([^\]]+)\]\[[^\]]*\]/g, "$1")
       .replace(/<(https?:\/\/[^>\s]+)>/g, "$1")
       .replace(/<\/?[a-zA-Z][^>]*>/g, "")
-      .replace(/`([^`]*)`/g, "$1")
+      // A code span is the one place we know a token is an identifier, so its
+      // word separators become spoken word breaks.
+      .replace(/`([^`]*)`/g, (_match, code: string) => code.replace(/_/g, " "))
       .replace(/~~([^~]+)~~/g, "$1")
       .replace(/\*\*([^*]+)\*\*/g, "$1")
       .replace(/__([^_]+)__/g, "$1")
@@ -38,7 +91,7 @@ function stripInlineMarkup(line: string): string {
       .replace(/(^|[^\w])_([^_\s][^_]*?)_(?=[^\w]|$)/g, "$1$2")
       .replace(/\\([\\`*_{}[\]()#+\-.!>~|])/g, "$1")
       .replace(/\s+/g, " ")
-      .trim()
+      .trim(),
   );
 }
 
@@ -46,10 +99,21 @@ function ensureSentenceEnd(text: string): string {
   return TERMINAL_PUNCTUATION.test(text) ? text : `${text}.`;
 }
 
-/** Returns "" when nothing speakable remains, which is how callers hide the control. */
-export function prepareSpeechText(markdown: string): string {
+/**
+ * A flattened piece of a message. The kind survives Markdown so a dialect that
+ * can pause knows a heading deserves a longer beat than the next bullet.
+ */
+export type SpeechBlockKind = "heading" | "list-item" | "paragraph";
+
+export type SpeechBlock = {
+  readonly kind: SpeechBlockKind;
+  readonly text: string;
+};
+
+/** Returns an empty array when nothing speakable remains. */
+export function prepareSpeechBlocks(markdown: string): SpeechBlock[] {
   const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
-  const paragraphs: string[] = [];
+  const blocks: SpeechBlock[] = [];
   let current: string[] = [];
   let fence: string | null = null;
   let inTable = false;
@@ -59,7 +123,13 @@ export function prepareSpeechText(markdown: string): string {
 
   const flush = () => {
     const text = current.join(" ").replace(/\s+/g, " ").trim();
-    if (text.length > 0) paragraphs.push(currentIsListItem ? ensureSentenceEnd(text) : text);
+    if (text.length > 0) {
+      blocks.push(
+        currentIsListItem
+          ? { kind: "list-item", text: ensureSentenceEnd(text) }
+          : { kind: "paragraph", text },
+      );
+    }
     current = [];
     currentIsListItem = false;
   };
@@ -81,7 +151,7 @@ export function prepareSpeechText(markdown: string): string {
     if (TABLE_LINE.test(rawLine) || (rawLine.includes("|") && TABLE_SEPARATOR_LINE.test(rawLine))) {
       if (!inTable) {
         flush();
-        paragraphs.push(SPEECH_TABLE_OMITTED_NOTE);
+        blocks.push({ kind: "paragraph", text: SPEECH_TABLE_OMITTED_NOTE });
         inTable = true;
       }
       continue;
@@ -105,7 +175,7 @@ export function prepareSpeechText(markdown: string): string {
     if (heading) {
       flush();
       const text = stripInlineMarkup(heading[1] ?? "");
-      if (text.length > 0) paragraphs.push(ensureSentenceEnd(text));
+      if (text.length > 0) blocks.push({ kind: "heading", text: ensureSentenceEnd(text) });
       continue;
     }
 
@@ -128,7 +198,69 @@ export function prepareSpeechText(markdown: string): string {
   }
   flush();
 
-  return paragraphs.join("\n\n");
+  return blocks;
+}
+
+/** The plain reading of prepared blocks, with no dialect markers in it. */
+export function speechTextFromBlocks(blocks: readonly SpeechBlock[]): string {
+  return blocks.map((block) => block.text).join("\n\n");
+}
+
+/** Returns "" when nothing speakable remains, which is how callers hide the control. */
+export function prepareSpeechText(markdown: string): string {
+  return speechTextFromBlocks(prepareSpeechBlocks(markdown));
+}
+
+// Han, kana, Hangul and the compatibility blocks, then the punctuation that
+// belongs to a run it follows. Ranges rather than Unicode property escapes,
+// which not every client runtime compiles.
+const CJK_LETTER = "\\u3040-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7AF\\uF900-\\uFAFF";
+const CJK_TRAILING = "\\u3000-\\u303F\\uFF01-\\uFF65";
+const CJK_RUN = new RegExp(`[${CJK_LETTER}][${CJK_LETTER}${CJK_TRAILING}]*`, "g");
+
+/** Seconds of silence after a block. A heading introduces what follows, so it gets the longer beat. */
+const BLOCK_PAUSE_SECONDS: Record<SpeechBlockKind, number> = {
+  heading: 0.6,
+  "list-item": 0.35,
+  paragraph: 0.35,
+};
+
+export type SpeechRenderOptions = {
+  readonly dialect: SpeechDialect;
+  /** The request's own voice, which each routed run has to hand control back to. */
+  readonly voice: string;
+  /** Empty leaves CJK runs to the main voice. */
+  readonly cjkVoice: string;
+};
+
+/**
+ * Joins prepared blocks into the text one endpoint should receive.
+ *
+ * The plain dialect is the blocks themselves: paragraph breaks carry no meaning
+ * to a speech model, so structure is simply lost, and a message reads as one
+ * flat run. Kokoro understands two inline markers, which buys back the pause
+ * between a heading and its bullets and lets a Japanese or Chinese run be
+ * spoken by a voice whose language pipeline can actually read it.
+ */
+export function renderSpeechText(
+  blocks: readonly SpeechBlock[],
+  options: SpeechRenderOptions,
+): string {
+  if (options.dialect !== "kokoro") return speechTextFromBlocks(blocks);
+  const cjkVoice = options.cjkVoice.trim();
+  const voice = options.voice.trim();
+  const routed =
+    cjkVoice.length > 0 && voice.length > 0
+      ? (text: string) =>
+          text.replace(CJK_RUN, (run) => `[voice:${cjkVoice}]${run}[voice:${voice}]`)
+      : (text: string) => text;
+  const last = blocks.length - 1;
+  return blocks
+    .map((block, index) => {
+      const text = routed(block.text);
+      return index === last ? text : `${text} [pause:${BLOCK_PAUSE_SECONDS[block.kind]}s]`;
+    })
+    .join("\n\n");
 }
 
 const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { MessageId, ThreadId, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
@@ -33,6 +34,30 @@ export function formatReadAloudPlaybackRate(rate: ReadAloudPlaybackRate): string
   return `${rate}×`;
 }
 
+/**
+ * What an endpoint understands beyond the OpenAI request shape. Kokoro reads
+ * inline `[pause:Ns]` and `[voice:name]` markers, which lets read aloud put a
+ * beat between bullets and hand Japanese to a Japanese voice; every other
+ * endpoint would speak those markers out loud, so they stay opt-in.
+ */
+export const SPEECH_DIALECTS = ["plain", "kokoro"] as const;
+export const SpeechDialect = Schema.Literals(SPEECH_DIALECTS);
+export type SpeechDialect = typeof SpeechDialect.Type;
+export const SPEECH_DEFAULT_DIALECT: SpeechDialect = "plain";
+
+/**
+ * Han characters carry no script of their own, so a run of them could be either
+ * language and a message can hold both. We read all of it as Japanese rather
+ * than guess per run: a wrong reading beats spelling every character out, and
+ * an owner who wants Chinese names a `z` voice instead.
+ */
+export const SPEECH_DEFAULT_CJK_VOICE = "jf_alpha";
+
+export const SPEECH_DIALECT_LABELS: Record<SpeechDialect, string> = {
+  plain: "Standard",
+  kokoro: "Kokoro",
+};
+
 export const SpeechSettings = Schema.Struct({
   /** Any endpoint that speaks the OpenAI speech API shape, cloud or local. */
   baseUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
@@ -44,6 +69,17 @@ export const SpeechSettings = Schema.Struct({
   maxCharsPerRequest: Schema.Int.check(
     Schema.isGreaterThanOrEqualTo(200),
     Schema.isLessThanOrEqualTo(SPEECH_MAX_TOTAL_CHARS),
+  ),
+  /** Which inline markers this endpoint understands. Defaults keep older settings working. */
+  dialect: SpeechDialect.pipe(Schema.withDecodingDefault(Effect.succeed(SPEECH_DEFAULT_DIALECT))),
+  /**
+   * Voice for Japanese, Chinese and Korean runs. An English voice spells those
+   * characters out one by one instead of reading them, so they go to a voice
+   * whose own language pipeline can. Empty leaves them to the main voice.
+   * Kokoro has no Korean voice, so Hangul lands on this one too.
+   */
+  cjkVoice: TrimmedString.check(Schema.isMaxLength(200)).pipe(
+    Schema.withDecodingDefault(Effect.succeed(SPEECH_DEFAULT_CJK_VOICE)),
   ),
 });
 export type SpeechSettings = typeof SpeechSettings.Type;

@@ -1,9 +1,12 @@
 import {
   SPEECH_DEFAULT_BASE_URL,
+  SPEECH_DEFAULT_CJK_VOICE,
+  SPEECH_DEFAULT_DIALECT,
   SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST,
   SPEECH_DEFAULT_MODEL,
   SPEECH_DEFAULT_VOICE,
   SPEECH_MAX_TOTAL_CHARS,
+  type SpeechDialect,
   type SpeechSettings,
 } from "@t3tools/contracts";
 
@@ -17,6 +20,8 @@ export interface ReadAloudFormValues {
   readonly model: string;
   readonly voice: string;
   readonly maxCharsPerRequest: string;
+  readonly dialect: SpeechDialect;
+  readonly cjkVoice: string;
 }
 
 export type ReadAloudFormErrors = Partial<Record<keyof ReadAloudFormValues, string>>;
@@ -35,6 +40,8 @@ export function defaultSpeechSettings(): SpeechSettings {
     model: SPEECH_DEFAULT_MODEL,
     voice: SPEECH_DEFAULT_VOICE,
     maxCharsPerRequest: SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST,
+    dialect: SPEECH_DEFAULT_DIALECT,
+    cjkVoice: SPEECH_DEFAULT_CJK_VOICE,
   };
 }
 
@@ -45,6 +52,8 @@ export function readAloudFormFromSettings(settings: SpeechSettings): ReadAloudFo
     model: settings.model,
     voice: settings.voice,
     maxCharsPerRequest: String(settings.maxCharsPerRequest),
+    dialect: settings.dialect,
+    cjkVoice: settings.cjkVoice,
   };
 }
 
@@ -65,6 +74,8 @@ export function applyReadAloudPreset(
         model: SPEECH_DEFAULT_MODEL,
         voice: SPEECH_DEFAULT_VOICE,
         maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
+        dialect: "plain",
+        cjkVoice: "",
       };
     case "local":
       return {
@@ -73,6 +84,8 @@ export function applyReadAloudPreset(
         model: "kokoro",
         voice: "af_bella",
         maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
+        dialect: "kokoro",
+        cjkVoice: SPEECH_DEFAULT_CJK_VOICE,
       };
   }
 }
@@ -84,7 +97,9 @@ export function isReadAloudFormDirty(form: ReadAloudFormValues, saved: SpeechSet
     form.apiKey.trim() !== savedForm.apiKey ||
     form.model.trim() !== savedForm.model ||
     form.voice.trim() !== savedForm.voice ||
-    form.maxCharsPerRequest.trim() !== savedForm.maxCharsPerRequest
+    form.maxCharsPerRequest.trim() !== savedForm.maxCharsPerRequest ||
+    form.dialect !== savedForm.dialect ||
+    form.cjkVoice.trim() !== savedForm.cjkVoice
   );
 }
 
@@ -124,7 +139,17 @@ export function validateReadAloudForm(
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return {
     ok: true,
-    settings: { baseUrl, apiKey: form.apiKey.trim(), model, voice, maxCharsPerRequest },
+    settings: {
+      baseUrl,
+      apiKey: form.apiKey.trim(),
+      model,
+      voice,
+      maxCharsPerRequest,
+      dialect: form.dialect,
+      // Only the Kokoro dialect can route a run to another voice, so a value
+      // left over from switching back never reaches the endpoint.
+      cjkVoice: form.dialect === "kokoro" ? form.cjkVoice.trim() : "",
+    },
   };
 }
 

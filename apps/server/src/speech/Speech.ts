@@ -23,7 +23,12 @@ import {
   type SpeechSynthesizeResult,
   SpeechTooLongError,
 } from "@t3tools/contracts";
-import { prepareSpeechText, splitSpeechSegments } from "@t3tools/shared/speechText";
+import {
+  prepareSpeechBlocks,
+  renderSpeechText,
+  speechTextFromBlocks,
+  splitSpeechSegments,
+} from "@t3tools/shared/speechText";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -197,7 +202,10 @@ export const make = Effect.gen(function* () {
     );
     const speech = settings.speech;
     if (speech === null) return yield* new SpeechNotConfiguredError();
-    const prepared = prepareSpeechText(text);
+    const blocks = prepareSpeechBlocks(text);
+    // The limit is about how much message a caller asked us to read, so it
+    // counts the prose and not the dialect markers wrapped around it.
+    const prepared = speechTextFromBlocks(blocks);
     if (prepared.length === 0) return yield* new SpeechNothingToReadError();
     if (prepared.length > SPEECH_MAX_TOTAL_CHARS) {
       return yield* new SpeechTooLongError({
@@ -205,7 +213,12 @@ export const make = Effect.gen(function* () {
         limit: SPEECH_MAX_TOTAL_CHARS,
       });
     }
-    const segments = splitSpeechSegments(prepared, speech.maxCharsPerRequest);
+    const rendered = renderSpeechText(blocks, {
+      dialect: speech.dialect,
+      voice: speech.voice,
+      cjkVoice: speech.cjkVoice,
+    });
+    const segments = splitSpeechSegments(rendered, speech.maxCharsPerRequest);
     const segmentText = segments[segment];
     if (segmentText === undefined) {
       return yield* new SpeechSegmentNotFoundError({ segment, segmentCount: segments.length });
