@@ -19,6 +19,7 @@ import {
   SpeechNothingToReadError,
   SpeechSegmentNotFoundError,
   SpeechServiceError,
+  type SpeechSettings,
   type SpeechSynthesizeError,
   type SpeechSynthesizeResult,
   SpeechTooLongError,
@@ -34,6 +35,8 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Encoding from "effect/Encoding";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -63,6 +66,9 @@ export class Speech extends Context.Service<
 >()("t3/speech/Speech") {}
 
 export const SPEECH_CACHE_MAX_BYTES = 200 * 1024 * 1024;
+
+/** Summaries kept while a message is read; a few messages' worth is plenty. */
+const MAX_PENDING_SUMMARIES = 16;
 
 type SpeechAudioExtension = "mp3" | "wav" | "ogg" | "aac" | "flac" | "webm";
 
@@ -170,6 +176,40 @@ export const make = Effect.gen(function* () {
         }),
     );
 
+  /**
+   * Summaries already asked for, keyed by everything that decides the answer. A
+   * table's summary is started when an *earlier* segment is requested and
+   * joined when the table's own segment arrives, so the model works while audio
+   * that is already made keeps playing. That head start is what makes a cold
+   * local model — minutes of weight loading, far past any timeout worth making
+   * a listener sit through — survivable rather than an automatic fallback.
+   */
+  const summaries = new Map<string, Fiber.Fiber<string | null>>();
+  const startSummary = Effect.fn("Speech.startSummary")(function* (
+    speech: SpeechSettings,
+    source: string,
+  ) {
+    const key = `${speech.summaryBaseUrl}\n${speech.summaryModel}\n${source}`;
+    const started = summaries.get(key);
+    if (started !== undefined) return started;
+    const fiber = yield* summarizeTable(speech, source).pipe(
+      Effect.provideContext(assetContext),
+      // Run it up to the request rather than at the next scheduler tick: the
+      // point of starting early is that the model is already working.
+      Effect.forkDetach({ startImmediately: true }),
+    );
+    summaries.set(key, fiber);
+    // Insertion-ordered, so dropping from the front drops the oldest. Entries
+    // are a string apiece; the cap only stops a long session from growing one.
+    for (const stale of Array.from(summaries.keys()).slice(
+      0,
+      summaries.size - MAX_PENDING_SUMMARIES,
+    )) {
+      summaries.delete(stale);
+    }
+    return fiber;
+  });
+
   const findCached = Effect.fn("Speech.findCached")(function* (hash: string) {
     for (const extension of CACHE_EXTENSIONS) {
       const cacheKey = `${hash}.${extension}`;
@@ -224,18 +264,25 @@ export const make = Effect.gen(function* () {
     if (plan === undefined) {
       return yield* new SpeechSegmentNotFoundError({ segment, segmentCount: plans.length });
     }
-    // A summary is asked for only when its own segment is, so the model never
-    // delays the segments before it. Failure falls back to the spoken reading.
+    // Start the next table's summary now so it runs against the time this
+    // segment takes to synthesize and play, instead of against silence.
+    for (const upcoming of plans.slice(segment + 1)) {
+      if (upcoming.kind !== "table") continue;
+      yield* startSummary(speech, upcoming.source);
+      break;
+    }
+    // Whatever the summary does — answer, refuse, time out, get interrupted —
+    // the table still has its spoken reading, so read aloud never fails on it.
     const segmentText =
       plan.kind === "text"
         ? plan.text
-        : yield* summarizeTable(speech, plan.source).pipe(
-            Effect.map((summary) =>
-              summary === null
-                ? plan.fallback
-                : renderSpeechText([{ kind: "paragraph", text: summary }], renderOptions),
+        : yield* startSummary(speech, plan.source).pipe(
+            Effect.flatMap(Fiber.await),
+            Effect.map((exit) =>
+              Exit.isSuccess(exit) && exit.value !== null
+                ? renderSpeechText([{ kind: "paragraph", text: exit.value }], renderOptions)
+                : plan.fallback,
             ),
-            Effect.provideContext(assetContext),
           );
     const hash = yield* crypto
       .digest(

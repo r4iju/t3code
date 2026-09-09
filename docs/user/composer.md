@@ -85,11 +85,21 @@ readings and Korean gets whichever voice you set. Name a Chinese voice if you
 would rather have it the other way round. Leave the dialect on Standard for
 every other endpoint, which would otherwise read those instructions out loud.
 
+A table can be summarized rather than read out. Point **Table summary URL** and
+**Table summary model** at any endpoint that speaks the OpenAI chat API — a
+model on your own machine is the intent — and a table is spoken as a sentence or
+two about what it shows instead of cell by cell. Leave the URL blank to keep the
+plain reading. The summary is only ever an improvement: if the model is
+unreachable, slow, or answers with nothing useful, the table is read out as
+before and playback carries on. Expect the first table after the model has been
+idle to fall back, since loading a local model can outlast the wait.
+
 Synthesis runs on the environment and the audio is cached there, so replaying a
 response is instant and repeated listens cost nothing. Long responses are
 synthesized a few sentences at a time: playback starts as soon as the opening
 sentences are ready and the rest is prepared while you listen. Only the message
-text is sent to the speech service you configured.
+text is sent to the speech service you configured, and a table's Markdown to
+the summarizer if you set one up.
 
 On web and desktop, the command palette offers **Read latest response aloud**,
 which you can bind to a shortcut under **Settings → Keybindings**.

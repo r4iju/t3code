@@ -212,6 +212,26 @@ describe("Speech", () => {
     }).pipe(Effect.provide(baseLayer)),
   );
 
+  it.effect("starts a table's summary while an earlier segment is still being read", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: withSummarizer,
+        summary: () => chatResponse("The table compares before and after."),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const message = `Intro.\n\n${TABLE}\n\nDone.`;
+      yield* speech.synthesizeText(message, 0);
+      // Asked before anyone requested the table, so a cold model loads against
+      // the intro's playing time instead of against silence.
+      expect(test.summaryRequests).toHaveLength(1);
+      const table = yield* speech.synthesizeText(message, 1);
+      // ...and the table joins that answer rather than asking a second time.
+      expect(test.summaryRequests).toHaveLength(1);
+      expect(test.requests.at(-1)!.body.input).toBe("The table compares before and after.");
+      expect(table.segmentCount).toBe(3);
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
   it.effect("keeps dialect markers out of a plain endpoint's request", () =>
     Effect.gen(function* () {
       const test = fixture();
