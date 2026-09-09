@@ -61,8 +61,9 @@ navigate to their sources.
 Every finished assistant response has a **Read aloud** control next to its copy
 button on web, desktop, and mobile. Press it to hear the response; press again to
 stop. Starting another response stops the one playing, and leaving the thread
-stops playback. Code blocks and tool output are skipped, tables are announced as
-omitted, and links are read by their label. Identifiers are spoken the way you
+stops playback. Code blocks and tool output are skipped, and links are read by
+their label. A short table is read a row at a time with each cell's column; a
+long one is announced by its shape instead. Identifiers are spoken the way you
 would say them: a ticket key letter by letter, a file path by its file name, and
 a commit hash in its short form. Playback speed (1× to 2×) is a
 per-device setting in the same section; on mobile it lives under **Settings →

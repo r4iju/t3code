@@ -10,7 +10,13 @@
  */
 import type { SpeechDialect } from "@t3tools/contracts";
 
-export const SPEECH_TABLE_OMITTED_NOTE = "Table omitted.";
+/**
+ * Past either limit a table is announced by its shape instead of read. Speaking
+ * every cell of a long table is a recital nobody listens to, and unlike a
+ * screen reader there is no way to skip ahead.
+ */
+export const MAX_SPOKEN_TABLE_ROWS = 6;
+export const MAX_SPOKEN_TABLE_COLUMNS = 4;
 
 const FENCE_LINE = /^\s{0,3}(`{3,}|~{3,})/;
 const TABLE_LINE = /^\s*\|.*\|\s*$/;
@@ -99,6 +105,68 @@ function ensureSentenceEnd(text: string): string {
   return TERMINAL_PUNCTUATION.test(text) ? text : `${text}.`;
 }
 
+function tableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => stripInlineMarkup(cell));
+}
+
+/**
+ * Reads a table the way a screen reader does: announce what the columns are,
+ * then speak each row. Cells keep their column name because position is
+ * unrecoverable by ear, except in a two-column table where the row is a pair
+ * and "before: flat" says it all.
+ */
+function speakTable(lines: readonly string[]): SpeechBlock[] {
+  const rows = lines
+    .filter((line) => !TABLE_SEPARATOR_LINE.test(line))
+    .map(tableCells)
+    .filter((cells) => cells.some((cell) => cell.length > 0));
+  const header = rows[0];
+  if (header === undefined) return [];
+  const body = rows.slice(1);
+  const columns = header.filter((cell) => cell.length > 0).join(", ");
+  if (body.length === 0) {
+    return [{ kind: "paragraph", text: ensureSentenceEnd(`Table. Columns: ${columns}`) }];
+  }
+  if (body.length > MAX_SPOKEN_TABLE_ROWS || header.length > MAX_SPOKEN_TABLE_COLUMNS) {
+    return [
+      {
+        kind: "paragraph",
+        text: ensureSentenceEnd(
+          `Table with ${body.length} ${body.length === 1 ? "row" : "rows"}. Columns: ${columns}`,
+        ),
+      },
+    ];
+  }
+  const blocks: SpeechBlock[] = [
+    { kind: "paragraph", text: ensureSentenceEnd(`Table. Columns: ${columns}`) },
+  ];
+  for (const cells of body) {
+    const subject = cells[0] ?? "";
+    const rest = cells.slice(1);
+    const text =
+      header.length <= 2
+        ? [subject, rest[0] ?? ""].filter((part) => part.length > 0).join(": ")
+        : [
+            subject,
+            ...rest.map((cell, index) => {
+              const label = header[index + 1] ?? "";
+              if (cell.length === 0) return "";
+              return label.length > 0 ? `${label}: ${cell}` : cell;
+            }),
+          ]
+            .filter((part) => part.length > 0)
+            .join(". ");
+    // Each row is its own block, so a dialect that pauses puts a beat between them.
+    if (text.length > 0) blocks.push({ kind: "list-item", text: ensureSentenceEnd(text) });
+  }
+  return blocks;
+}
+
 /**
  * A flattened piece of a message. The kind survives Markdown so a dialect that
  * can pause knows a heading deserves a longer beat than the next bullet.
@@ -117,6 +185,7 @@ export function prepareSpeechBlocks(markdown: string): SpeechBlock[] {
   let current: string[] = [];
   let fence: string | null = null;
   let inTable = false;
+  let tableLines: string[] = [];
   let previousLineBlank = true;
 
   let currentIsListItem = false;
@@ -132,6 +201,13 @@ export function prepareSpeechBlocks(markdown: string): SpeechBlock[] {
     }
     current = [];
     currentIsListItem = false;
+  };
+
+  const closeTable = () => {
+    if (!inTable) return;
+    inTable = false;
+    blocks.push(...speakTable(tableLines));
+    tableLines = [];
   };
 
   for (const rawLine of lines) {
@@ -151,12 +227,12 @@ export function prepareSpeechBlocks(markdown: string): SpeechBlock[] {
     if (TABLE_LINE.test(rawLine) || (rawLine.includes("|") && TABLE_SEPARATOR_LINE.test(rawLine))) {
       if (!inTable) {
         flush();
-        blocks.push({ kind: "paragraph", text: SPEECH_TABLE_OMITTED_NOTE });
         inTable = true;
       }
+      tableLines.push(rawLine);
       continue;
     }
-    inTable = false;
+    closeTable();
 
     if (rawLine.trim().length === 0 || HORIZONTAL_RULE.test(rawLine)) {
       flush();
@@ -196,6 +272,7 @@ export function prepareSpeechBlocks(markdown: string): SpeechBlock[] {
     const text = stripInlineMarkup(line);
     if (text.length > 0) current.push(text);
   }
+  closeTable();
   flush();
 
   return blocks;
