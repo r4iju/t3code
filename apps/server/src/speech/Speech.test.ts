@@ -38,6 +38,8 @@ const settings: SpeechSettings = {
   model: "tts-1",
   voice: "alloy",
   maxCharsPerRequest: 4096,
+  dialect: "plain",
+  cjkVoice: "",
 };
 
 const RequestBody = Schema.Struct({
@@ -45,6 +47,7 @@ const RequestBody = Schema.Struct({
   input: Schema.String,
   voice: Schema.String,
   response_format: Schema.String,
+  allow_voice_tags: Schema.optionalKey(Schema.Boolean),
 });
 const decodeRequest = Schema.decodeUnknownSync(Schema.fromJsonString(RequestBody));
 const text = new TextEncoder();
@@ -114,6 +117,30 @@ describe("Speech", () => {
       const error = yield* Effect.flip(speech.synthesizeText("Hello there.", 0));
       expect(error._tag).toBe("SpeechNotConfiguredError");
     }).pipe(Effect.provide(fixture({ speech: null }).layer)),
+  );
+
+  it.effect("keeps dialect markers out of a plain endpoint's request", () =>
+    Effect.gen(function* () {
+      const test = fixture();
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText("## Heading\n\nComments through コメント stay.", 0);
+      expect(test.requests[0]!.body.input).toBe("Heading.\n\nComments through コメント stay.");
+      expect(test.requests[0]!.body.allow_voice_tags).toBeUndefined();
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("pauses between blocks and routes CJK to its own voice in the Kokoro dialect", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: { ...settings, dialect: "kokoro", cjkVoice: "jf_alpha" },
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText("## Heading\n\nComments through `コメント` stay.", 0);
+      expect(test.requests[0]!.body.input).toBe(
+        "Heading. [pause:0.6s]\n\nComments through [voice:jf_alpha]コメント[voice:alloy] stay.",
+      );
+      expect(test.requests[0]!.body.allow_voice_tags).toBe(true);
+    }).pipe(Effect.provide(baseLayer)),
   );
 
   it.effect("synthesizes once, serves the cached file, and reuses it for repeat calls", () =>

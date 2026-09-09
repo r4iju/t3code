@@ -62,7 +62,9 @@ Every finished assistant response has a **Read aloud** control next to its copy
 button on web, desktop, and mobile. Press it to hear the response; press again to
 stop. Starting another response stops the one playing, and leaving the thread
 stops playback. Code blocks and tool output are skipped, tables are announced as
-omitted, and links are read by their label. Playback speed (1× to 2×) is a
+omitted, and links are read by their label. Identifiers are spoken the way you
+would say them: a ticket key letter by letter, a file path by its file name, and
+a commit hash in its short form. Playback speed (1× to 2×) is a
 per-device setting in the same section; on mobile it lives under **Settings →
 General → Read Aloud**. The audio is time-stretched, so the voice keeps its pitch.
 
@@ -72,6 +74,15 @@ OpenAI speech API, so you can point it at OpenAI with an API key or at a local
 model server on your own machine or network with no key. Enter the model and
 voice names that endpoint expects, then use **Test voice** to confirm it works.
 Mobile reads whatever the environment has configured; it cannot change it.
+
+Set **Speech dialect** to Kokoro when the endpoint is a Kokoro server. That lets
+responses pause between a heading and the bullets under it, and adds a **voice
+for CJK text**: Japanese, Chinese and Korean are read by the voice you name
+there instead of being spelled out character by character. It defaults to a
+Japanese voice, and everything CJK goes to it, so Chinese is read with Japanese
+readings and Korean gets whichever voice you set. Name a Chinese voice if you
+would rather have it the other way round. Leave the dialect on Standard for
+every other endpoint, which would otherwise read those instructions out loud.
 
 Synthesis runs on the environment and the audio is cached there, so replaying a
 response is instant and repeated listens cost nothing. Long responses are

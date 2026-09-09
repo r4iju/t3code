@@ -1286,7 +1286,9 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     model: "gpt-4o-mini-tts",
     voice: "alloy",
     maxCharsPerRequest: 4096,
-  };
+    dialect: "plain",
+    cjkVoice: "",
+  } as const;
 
   it.effect("stores the speech API key outside settings.json and hydrates it on read", () =>
     Effect.gen(function* () {

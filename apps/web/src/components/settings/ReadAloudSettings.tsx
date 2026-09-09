@@ -3,6 +3,9 @@ import {
   DEFAULT_READ_ALOUD_PLAYBACK_RATE,
   formatReadAloudPlaybackRate,
   READ_ALOUD_PLAYBACK_RATES,
+  SPEECH_DIALECT_LABELS,
+  SPEECH_DIALECTS,
+  type SpeechDialect,
   type SpeechSettings,
 } from "@t3tools/contracts";
 import { SquareIcon, Volume2Icon } from "lucide-react";
@@ -163,6 +166,45 @@ function ReadAloudForm({
           />
         }
       />
+      <SettingsRow
+        {...searchableSetting("read-aloud-dialect")}
+        serverScoped
+        description="Kokoro reads inline pause and voice markers, so responses get a beat between bullets. Other endpoints would speak the markers out loud."
+        control={
+          <Select
+            value={form.dialect}
+            onValueChange={(value) => update({ dialect: value as SpeechDialect })}
+          >
+            <SelectTrigger size="sm" className="w-full sm:w-72" aria-label="Speech dialect">
+              <SelectValue>{SPEECH_DIALECT_LABELS[form.dialect]}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {SPEECH_DIALECTS.map((candidate) => (
+                <SelectItem hideIndicator key={candidate} value={candidate}>
+                  {SPEECH_DIALECT_LABELS[candidate]}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      />
+      {form.dialect === "kokoro" ? (
+        <SettingsRow
+          {...searchableSetting("read-aloud-cjk-voice")}
+          serverScoped
+          description="Japanese, Chinese and Korean go to this voice instead of being spelled out character by character. Anything Han is read as Japanese, so name a Chinese voice if you would rather have that. Leave blank to use the voice above."
+          control={
+            <Input
+              size="sm"
+              className="sm:w-72"
+              aria-label="CJK voice"
+              placeholder="jf_alpha"
+              value={form.cjkVoice}
+              onChange={(event) => update({ cjkVoice: event.target.value })}
+            />
+          }
+        />
+      ) : null}
       <SettingsRow
         {...searchableSetting("read-aloud-max-chars")}
         serverScoped
