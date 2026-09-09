@@ -6,7 +6,6 @@ import {
   prepareSpeechText,
   renderSpeechText,
   SPEECH_FIRST_SEGMENT_CHARS,
-  SPEECH_TABLE_OMITTED_NOTE,
   splitSpeechSegments,
 } from "./speechText.ts";
 
@@ -24,7 +23,7 @@ describe("prepareSpeechText", () => {
     expect(prepareSpeechText(markdown)).toBe("Here is the fix.\n\nRun it again.");
   });
 
-  it("replaces a table with the spoken note once", () => {
+  it("reads a two-column table as pairs", () => {
     const markdown = [
       "Results:",
       "",
@@ -35,7 +34,43 @@ describe("prepareSpeechText", () => {
       "",
       "Done.",
     ].join("\n");
-    expect(prepareSpeechText(markdown)).toBe(`Results:\n\n${SPEECH_TABLE_OMITTED_NOTE}\n\nDone.`);
+    expect(prepareSpeechText(markdown)).toBe(
+      "Results:\n\nTable. Columns: name, value.\n\na: 1.\n\nb: 2.\n\nDone.",
+    );
+  });
+
+  it("keeps the column with each cell once a table is wider than a pair", () => {
+    const markdown = [
+      "| file | change | lines |",
+      "| --- | --- | --- |",
+      "| `readAloud.ts` | rewritten | 40 |",
+    ].join("\n");
+    expect(prepareSpeechText(markdown)).toBe(
+      "Table. Columns: file, change, lines.\n\nreadAloud.ts. change: rewritten. lines: 40.",
+    );
+  });
+
+  it("announces the shape of a table too long to read", () => {
+    const rows = Array.from({ length: 8 }, (_, index) => `| row ${index} | ${index} |`);
+    const markdown = ["| name | value |", "| --- | --- |", ...rows].join("\n");
+    expect(prepareSpeechText(markdown)).toBe("Table with 8 rows. Columns: name, value.");
+  });
+
+  it("announces the shape of a table too wide to read", () => {
+    const markdown = [
+      "| a | b | c | d | e |",
+      "| --- | --- | --- | --- | --- |",
+      "| 1 | 2 | 3 | 4 | 5 |",
+    ].join("\n");
+    expect(prepareSpeechText(markdown)).toBe("Table with 1 row. Columns: a, b, c, d, e.");
+  });
+
+  it("gives each table row its own block so a pausing dialect separates them", () => {
+    const markdown = ["| step | result |", "| --- | --- |", "| before | flat |"].join("\n");
+    expect(prepareSpeechBlocks(markdown)).toEqual([
+      { kind: "paragraph", text: "Table. Columns: step, result." },
+      { kind: "list-item", text: "before: flat." },
+    ]);
   });
 
   it("keeps inline code and link labels as plain words", () => {
