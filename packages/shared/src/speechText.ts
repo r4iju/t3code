@@ -130,21 +130,26 @@ function speakTable(lines: readonly string[]): SpeechBlock[] {
   const body = rows.slice(1);
   const columns = header.filter((cell) => cell.length > 0).join(", ");
   if (body.length === 0) {
-    return [{ kind: "paragraph", text: ensureSentenceEnd(`Table. Columns: ${columns}`) }];
+    return [
+      {
+        kind: "table",
+        text: ensureSentenceEnd(`Table. Columns: ${columns}`),
+        source: lines.join("\n"),
+      },
+    ];
   }
   if (body.length > MAX_SPOKEN_TABLE_ROWS || header.length > MAX_SPOKEN_TABLE_COLUMNS) {
     return [
       {
-        kind: "paragraph",
+        kind: "table",
         text: ensureSentenceEnd(
           `Table with ${body.length} ${body.length === 1 ? "row" : "rows"}. Columns: ${columns}`,
         ),
+        source: lines.join("\n"),
       },
     ];
   }
-  const blocks: SpeechBlock[] = [
-    { kind: "paragraph", text: ensureSentenceEnd(`Table. Columns: ${columns}`) },
-  ];
+  const spoken: string[] = [ensureSentenceEnd(`Table. Columns: ${columns}`)];
   for (const cells of body) {
     const subject = cells[0] ?? "";
     const rest = cells.slice(1);
@@ -161,22 +166,27 @@ function speakTable(lines: readonly string[]): SpeechBlock[] {
           ]
             .filter((part) => part.length > 0)
             .join(". ");
-    // Each row is its own block, so a dialect that pauses puts a beat between them.
-    if (text.length > 0) blocks.push({ kind: "list-item", text: ensureSentenceEnd(text) });
+    if (text.length > 0) spoken.push(ensureSentenceEnd(text));
   }
-  return blocks;
+  // Rows are separated the way paragraphs are, so a dialect that pauses puts a
+  // beat between them.
+  return [{ kind: "table", text: spoken.join("\n\n"), source: lines.join("\n") }];
 }
 
 /**
  * A flattened piece of a message. The kind survives Markdown so a dialect that
  * can pause knows a heading deserves a longer beat than the next bullet.
  */
-export type SpeechBlockKind = "heading" | "list-item" | "paragraph";
+export type SpeechBlockKind = "heading" | "list-item" | "paragraph" | "table";
 
-export type SpeechBlock = {
-  readonly kind: SpeechBlockKind;
-  readonly text: string;
-};
+/**
+ * A table keeps its Markdown so a summarizer has something to send. `text` is
+ * the reading to speak when there is nothing to summarize with, which is also
+ * what a plain dialect always uses.
+ */
+export type SpeechBlock =
+  | { readonly kind: "heading" | "list-item" | "paragraph"; readonly text: string }
+  | { readonly kind: "table"; readonly text: string; readonly source: string };
 
 /** Returns an empty array when nothing speakable remains. */
 export function prepareSpeechBlocks(markdown: string): SpeechBlock[] {
@@ -300,6 +310,7 @@ const BLOCK_PAUSE_SECONDS: Record<SpeechBlockKind, number> = {
   heading: 0.6,
   "list-item": 0.35,
   paragraph: 0.35,
+  table: 0.35,
 };
 
 export type SpeechRenderOptions = {
@@ -334,10 +345,57 @@ export function renderSpeechText(
   const last = blocks.length - 1;
   return blocks
     .map((block, index) => {
-      const text = routed(block.text);
-      return index === last ? text : `${text} [pause:${BLOCK_PAUSE_SECONDS[block.kind]}s]`;
+      const seconds = BLOCK_PAUSE_SECONDS[block.kind];
+      const pause = ` [pause:${seconds}s]`;
+      // Only a table holds more than one paragraph, and its rows want the same
+      // beat between them that separate blocks get.
+      const text = block.text
+        .split(/\n{2,}/)
+        .map((part) => routed(part))
+        .join(`${pause}\n\n`);
+      return index === last ? text : `${text}${pause}`;
     })
     .join("\n\n");
+}
+
+/**
+ * One request's worth of speech. A table is planned as its own segment and
+ * carries its Markdown, so an environment can summarize it when the segment is
+ * asked for without the summary's length moving any other segment's boundary.
+ * That keeps `segmentCount` the same for every call, which clients rely on.
+ */
+export type SpeechSegmentPlan =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "table"; readonly source: string; readonly fallback: string };
+
+export function planSpeechSegments(
+  blocks: readonly SpeechBlock[],
+  options: SpeechRenderOptions,
+  maxChars: number,
+): SpeechSegmentPlan[] {
+  const plans: SpeechSegmentPlan[] = [];
+  let run: SpeechBlock[] = [];
+  const closeRun = () => {
+    if (run.length === 0) return;
+    for (const text of splitSpeechSegments(renderSpeechText(run, options), maxChars)) {
+      plans.push({ kind: "text", text });
+    }
+    run = [];
+  };
+  for (const block of blocks) {
+    if (block.kind !== "table") {
+      run.push(block);
+      continue;
+    }
+    closeRun();
+    plans.push({
+      kind: "table",
+      source: block.source,
+      fallback: renderSpeechText([block], options),
+    });
+  }
+  closeRun();
+  return plans;
 }
 
 const SENTENCE_BOUNDARY = /(?<=[.!?])\s+/;

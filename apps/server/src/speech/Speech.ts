@@ -24,10 +24,10 @@ import {
   SpeechTooLongError,
 } from "@t3tools/contracts";
 import {
+  planSpeechSegments,
   prepareSpeechBlocks,
   renderSpeechText,
   speechTextFromBlocks,
-  splitSpeechSegments,
 } from "@t3tools/shared/speechText";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -49,6 +49,7 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { synthesizeSpeechChunk } from "./OpenAiSpeechClient.ts";
+import { summarizeTable } from "./TableSummaryClient.ts";
 
 export class Speech extends Context.Service<
   Speech,
@@ -213,16 +214,29 @@ export const make = Effect.gen(function* () {
         limit: SPEECH_MAX_TOTAL_CHARS,
       });
     }
-    const rendered = renderSpeechText(blocks, {
+    const renderOptions = {
       dialect: speech.dialect,
       voice: speech.voice,
       cjkVoice: speech.cjkVoice,
-    });
-    const segments = splitSpeechSegments(rendered, speech.maxCharsPerRequest);
-    const segmentText = segments[segment];
-    if (segmentText === undefined) {
-      return yield* new SpeechSegmentNotFoundError({ segment, segmentCount: segments.length });
+    };
+    const plans = planSpeechSegments(blocks, renderOptions, speech.maxCharsPerRequest);
+    const plan = plans[segment];
+    if (plan === undefined) {
+      return yield* new SpeechSegmentNotFoundError({ segment, segmentCount: plans.length });
     }
+    // A summary is asked for only when its own segment is, so the model never
+    // delays the segments before it. Failure falls back to the spoken reading.
+    const segmentText =
+      plan.kind === "text"
+        ? plan.text
+        : yield* summarizeTable(speech, plan.source).pipe(
+            Effect.map((summary) =>
+              summary === null
+                ? plan.fallback
+                : renderSpeechText([{ kind: "paragraph", text: summary }], renderOptions),
+            ),
+            Effect.provideContext(assetContext),
+          );
     const hash = yield* crypto
       .digest(
         "SHA-256",
@@ -241,7 +255,7 @@ export const make = Effect.gen(function* () {
           yield* fs
             .utimes(path.join(config.speechDir, cached), touchedAt, touchedAt)
             .pipe(Effect.ignore);
-          return yield* issueResult(cached, segments.length);
+          return yield* issueResult(cached, plans.length);
         }
         const audio = yield* synthesizeSpeechChunk(speech, segmentText);
         const extension = EXTENSION_BY_MIME_TYPE[audio.mimeType];
@@ -257,7 +271,7 @@ export const make = Effect.gen(function* () {
           contents: audio.bytes,
         }).pipe(Effect.mapError(cacheError));
         yield* trimSpeechCache(config.speechDir, SPEECH_CACHE_MAX_BYTES).pipe(Effect.ignore);
-        return yield* issueResult(cacheKey, segments.length);
+        return yield* issueResult(cacheKey, plans.length);
       }),
     ).pipe(Effect.provideContext(assetContext));
   });

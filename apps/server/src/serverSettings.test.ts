@@ -1288,6 +1288,8 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     maxCharsPerRequest: 4096,
     dialect: "plain",
     cjkVoice: "",
+    summaryBaseUrl: "",
+    summaryModel: "",
   } as const;
 
   it.effect("stores the speech API key outside settings.json and hydrates it on read", () =>

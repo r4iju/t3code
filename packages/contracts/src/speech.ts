@@ -53,6 +53,24 @@ export const SPEECH_DEFAULT_DIALECT: SpeechDialect = "plain";
  */
 export const SPEECH_DEFAULT_CJK_VOICE = "jf_alpha";
 
+/**
+ * A table read cell by cell is a recital, so an environment may summarize it
+ * with a chat model instead. Any OpenAI-shaped `/chat/completions` works; the
+ * intent is a local one, which is why there is no key here. Empty turns it off
+ * and tables keep their spoken reading.
+ */
+export const SPEECH_SUMMARY_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
+/** Reasoning tokens are latency with nothing to show for them on this task. */
+export const SPEECH_SUMMARY_REASONING_EFFORT = "none";
+/**
+ * Past this the fallback reading wins. The budget is the audio still playing
+ * ahead of the table, not silence: the client asks for a segment while the
+ * previous one plays. Measured against a local 3B-active MoE, a seven-row table
+ * took about three seconds, so the wall sits well clear of the tables actually
+ * worth summarizing rather than close enough to cut them.
+ */
+export const SPEECH_SUMMARY_TIMEOUT_MS = 10_000;
+
 export const SPEECH_DIALECT_LABELS: Record<SpeechDialect, string> = {
   plain: "Standard",
   kokoro: "Kokoro",
@@ -80,6 +98,13 @@ export const SpeechSettings = Schema.Struct({
    */
   cjkVoice: TrimmedString.check(Schema.isMaxLength(200)).pipe(
     Schema.withDecodingDefault(Effect.succeed(SPEECH_DEFAULT_CJK_VOICE)),
+  ),
+  /** Empty leaves tables to their spoken reading. See the constants above. */
+  summaryBaseUrl: TrimmedString.check(Schema.isMaxLength(2048)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
+  ),
+  summaryModel: TrimmedString.check(Schema.isMaxLength(200)).pipe(
+    Schema.withDecodingDefault(Effect.succeed("")),
   ),
 });
 export type SpeechSettings = typeof SpeechSettings.Type;

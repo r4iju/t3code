@@ -298,6 +298,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     primaryOnly: true,
   },
   {
+    id: "read-aloud-summary-url",
+    title: "Table summary URL",
+    to: "/settings/general",
+    targetId: "read-aloud-enabled",
+    searchTerms: ["ollama local llm chat completions summarize tables"],
+    primaryOnly: true,
+  },
+  {
+    id: "read-aloud-summary-model",
+    title: "Table summary model",
+    to: "/settings/general",
+    targetId: "read-aloud-enabled",
+    searchTerms: ["ollama qwen model summarize tables"],
+    primaryOnly: true,
+  },
+  {
     id: "read-aloud-max-chars",
     title: "Max characters per speech request",
     to: "/settings/general",
