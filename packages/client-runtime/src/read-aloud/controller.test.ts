@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   isReadAloudActive,
+  readAloudErrorMessage,
   type ReadAloudAudio,
   ReadAloudController,
   type ReadAloudPlaybackCallbacks,
@@ -316,5 +317,38 @@ describe("ReadAloudController", () => {
     expect(controller.currentState.phase).toBe("playing");
     controller.stopUnless((key) => key.startsWith("env:t2:"));
     expect(controller.currentState.phase).toBe("idle");
+  });
+});
+
+describe("readAloudErrorMessage", () => {
+  it("keeps the message an Error carries", () => {
+    expect(readAloudErrorMessage(new Error("The speech service could not be reached."))).toBe(
+      "The speech service could not be reached.",
+    );
+  });
+
+  // A squashed Effect cause is usually a tagged object rather than an Error.
+  it("names the tag when a tagged failure has no message", () => {
+    expect(readAloudErrorMessage({ _tag: "SpeechNotConfiguredError" })).toBe(
+      "Read aloud failed: SpeechNotConfiguredError.",
+    );
+  });
+
+  it("keeps both the message and the tag when they differ", () => {
+    expect(
+      readAloudErrorMessage({ _tag: "SpeechServiceError", message: "The service returned 500." }),
+    ).toBe("The service returned 500. (SpeechServiceError)");
+  });
+
+  it("does not repeat a tag the message already names", () => {
+    expect(readAloudErrorMessage({ _tag: "ParseError", message: "ParseError: bad input" })).toBe(
+      "ParseError: bad input",
+    );
+  });
+
+  it("reports something actionable when the cause carries nothing", () => {
+    for (const empty of [undefined, null, {}, new Error("")]) {
+      expect(readAloudErrorMessage(empty)).toBe("Read aloud failed for an unknown reason.");
+    }
   });
 });

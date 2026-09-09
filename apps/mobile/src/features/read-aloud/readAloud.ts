@@ -1,13 +1,16 @@
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import { withPreparedConnection } from "@t3tools/client-runtime/state/session";
 import {
+  type AtomCommandResult,
   createEnvironmentRpcCommand,
+  isAtomCommandInterrupted,
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
   READ_ALOUD_IDLE_STATE,
   ReadAloudController,
+  readAloudErrorMessage,
   type ReadAloudState,
 } from "@t3tools/client-runtime/read-aloud";
 import {
@@ -39,6 +42,30 @@ const speechSynthesize = createEnvironmentRpcCommand(connectionAtomRuntime, {
   tag: WS_METHODS.speechSynthesize,
 });
 
+/**
+ * Turns a failed synthesis command into an error the alert can act on. The raw
+ * cause is logged because a squashed cause often carries the only clue (a tag,
+ * a parse failure) and the alert has room for one sentence. A client whose code
+ * disagrees with the environment — an app build older than the server — arrives
+ * here as a cause with nothing to report, so say what fixes it.
+ */
+type SpeechCommandFailure = Extract<
+  AtomCommandResult<unknown, unknown>,
+  { readonly _tag: "Failure" }
+>;
+
+function speechRequestError(result: SpeechCommandFailure): Error {
+  console.error("Read aloud: speech.synthesize failed", result.cause);
+  if (isAtomCommandInterrupted(result)) {
+    return new Error("Read aloud stopped before the audio was ready. Try again.");
+  }
+  const squashed = squashAtomCommandFailure(result);
+  if (squashed === undefined || squashed === null) {
+    return new Error("Read aloud failed. Update the app if the environment was upgraded.");
+  }
+  return new Error(readAloudErrorMessage(squashed));
+}
+
 // The RPC runs to completion even after the controller aborts; it only ignores
 // the result, and a finished synthesis stays cached on the environment.
 function resolveAudio(
@@ -59,7 +86,7 @@ function resolveAudio(
         { environmentId: request.environmentId, input: { source: request.input, segment } },
         { reportFailure: false },
       );
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      if (result._tag === "Failure") throw speechRequestError(result);
       const url = resolveAssetUrl(connection.httpBaseUrl, result.value.relativeUrl);
       if (url === null) throw new Error("Could not resolve the audio URL.");
       return { url, segmentCount: result.value.segmentCount };
@@ -107,7 +134,7 @@ const controller = new ReadAloudController<ReadAloudRequest>({
     state = next;
     for (const listener of listeners) listener();
     if (next.phase === "error") {
-      Alert.alert("Read aloud failed", next.error ?? "Could not read this message aloud.");
+      Alert.alert("Read aloud failed", next.error ?? "Read aloud failed for an unknown reason.");
       controller.dismissError();
     }
   },
