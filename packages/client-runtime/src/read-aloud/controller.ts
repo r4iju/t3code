@@ -74,9 +74,24 @@ export function isReadAloudActive(state: ReadAloudState, key: string): boolean {
   return state.targetKey === key && (state.phase === "loading" || state.phase === "playing");
 }
 
-function errorMessage(error: unknown): string {
+/**
+ * Read-aloud failures arrive as whatever the RPC layer threw, which is often
+ * not an `Error`: squashing an Effect cause yields a tagged object, an
+ * interrupt, or nothing at all. Reporting "could not read this message" for all
+ * of them leaves nothing to act on, so keep the most specific text available
+ * and fall back to naming the tag rather than discarding it.
+ */
+export function readAloudErrorMessage(error: unknown): string {
+  if (typeof error === "string" && error.trim().length > 0) return error;
   if (error instanceof Error && error.message.length > 0) return error.message;
-  return "Could not read this message aloud.";
+  if (typeof error === "object" && error !== null) {
+    const { message, _tag } = error as { readonly message?: unknown; readonly _tag?: unknown };
+    const text = typeof message === "string" && message.trim().length > 0 ? message : null;
+    const tag = typeof _tag === "string" && _tag.trim().length > 0 ? _tag : null;
+    if (text !== null) return tag === null || text.includes(tag) ? text : `${text} (${tag})`;
+    if (tag !== null) return `Read aloud failed: ${tag}.`;
+  }
+  return "Read aloud failed for an unknown reason.";
 }
 
 export class ReadAloudController<Request extends ReadAloudRequest = ReadAloudRequest> {
@@ -126,7 +141,7 @@ export class ReadAloudController<Request extends ReadAloudRequest = ReadAloudReq
     } catch (error) {
       if (!current()) return;
       this.abortController = null;
-      this.setState({ phase: "error", targetKey: key, error: errorMessage(error) });
+      this.setState({ phase: "error", targetKey: key, error: readAloudErrorMessage(error) });
       return;
     }
     if (!current()) return;
@@ -190,7 +205,7 @@ export class ReadAloudController<Request extends ReadAloudRequest = ReadAloudReq
         });
       } catch (error) {
         if (!current()) return;
-        fail(errorMessage(error));
+        fail(readAloudErrorMessage(error));
         return;
       }
       if (settled || !current()) return;
@@ -207,7 +222,7 @@ export class ReadAloudController<Request extends ReadAloudRequest = ReadAloudReq
           audio = await resolve(index);
         } catch (error) {
           if (!current()) return;
-          resolveFailure = errorMessage(error);
+          resolveFailure = readAloudErrorMessage(error);
           if (waitingFor === index) fail(resolveFailure);
           return;
         }
