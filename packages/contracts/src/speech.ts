@@ -64,12 +64,13 @@ export const SPEECH_SUMMARY_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 export const SPEECH_SUMMARY_REASONING_EFFORT = "none";
 /**
  * Past this the fallback reading wins. The budget is the audio still playing
- * ahead of the table, not silence: the client asks for a segment while the
- * previous one plays. Measured against a local 3B-active MoE, a seven-row table
- * took about three seconds, so the wall sits well clear of the tables actually
- * worth summarizing rather than close enough to cut them.
+ * ahead of the table, not silence: a summary is started when an earlier segment
+ * is asked for, so the wait overlaps with playback rather than delaying it.
+ * Warm, a local 3B-active MoE answered a seven-row table in one to four
+ * seconds; the wall is set well clear of that because the expensive case is a
+ * cold model loading its weights, and cutting that off buys nothing.
  */
-export const SPEECH_SUMMARY_TIMEOUT_MS = 10_000;
+export const SPEECH_SUMMARY_TIMEOUT_MS = 20_000;
 
 export const SPEECH_DIALECT_LABELS: Record<SpeechDialect, string> = {
   plain: "Standard",
