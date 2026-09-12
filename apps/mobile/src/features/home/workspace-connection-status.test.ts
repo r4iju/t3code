@@ -12,6 +12,7 @@ function workspaceState(overrides: Partial<WorkspaceState> = {}): WorkspaceState
     hasReadyEnvironment: true,
     hasConnectingEnvironment: false,
     connectingEnvironments: [],
+    refusedEnvironments: [],
     connectionState: "connected",
     connectionError: null,
     shellSnapshotError: null,
@@ -48,6 +49,7 @@ describe("workspace connection status", () => {
           connectionState: "reconnecting",
           connectionError: null,
           connectionErrorTraceId: null,
+          connectionBlockedReason: null,
         },
       ],
     });
@@ -55,6 +57,30 @@ describe("workspace connection status", () => {
     expect(workspaceConnectionStatusPresentation(state)).toEqual({
       label: "Reconnecting to Julius’s Mac mini",
       showsProgress: true,
+    });
+  });
+
+  it("names the environment that refused this device", () => {
+    const state = workspaceState({
+      connectionError: "The environment credential is invalid.",
+      hasReadyEnvironment: false,
+      refusedEnvironments: [
+        {
+          environmentId: "environment-1" as never,
+          environmentLabel: "Julius’s Mac mini",
+          displayUrl: "",
+          isRelayManaged: false,
+          connectionState: "error",
+          connectionError: "The environment credential is invalid.",
+          connectionErrorTraceId: null,
+          connectionBlockedReason: "pairing",
+        },
+      ],
+    });
+
+    expect(workspaceConnectionStatusPresentation(state)).toEqual({
+      label: "Julius’s Mac mini no longer accepts this device",
+      showsProgress: false,
     });
   });
 

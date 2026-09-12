@@ -67,7 +67,10 @@ export const ConnectionTransientReason = Schema.Literals([
 ]);
 export type ConnectionTransientReason = typeof ConnectionTransientReason.Type;
 
+// "pairing": the environment refused this device's own pairing; pairing again is the way back.
+// "authentication": a credential the environment does not own (T3 Connect sign-in, DPoP proof).
 export const ConnectionBlockedReason = Schema.Literals([
+  "pairing",
   "authentication",
   "configuration",
   "permission",

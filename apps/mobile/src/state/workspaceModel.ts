@@ -1,6 +1,9 @@
 import { type EnvironmentShellSummary } from "@t3tools/client-runtime/state/shell";
-import { type NetworkStatus } from "@t3tools/client-runtime/connection";
-import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import {
+  type ConnectionBlockedReason,
+  type EnvironmentConnectionPhase,
+  type NetworkStatus,
+} from "@t3tools/client-runtime/connection";
 import type { EnvironmentId, ServerConfig } from "@t3tools/contracts";
 
 import type { EnvironmentPresentation } from "./environments";
@@ -13,6 +16,7 @@ export interface WorkspaceEnvironment {
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionError: string | null;
   readonly connectionErrorTraceId: string | null;
+  readonly connectionBlockedReason: ConnectionBlockedReason | null;
 }
 
 export interface WorkspaceState {
@@ -23,6 +27,8 @@ export interface WorkspaceState {
   readonly hasReadyEnvironment: boolean;
   readonly hasConnectingEnvironment: boolean;
   readonly connectingEnvironments: ReadonlyArray<WorkspaceEnvironment>;
+  /** Environments that revoked this device; only pairing again reconnects them. */
+  readonly refusedEnvironments: ReadonlyArray<WorkspaceEnvironment>;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionError: string | null;
   readonly shellSnapshotError: string | null;
@@ -41,6 +47,7 @@ export function projectWorkspaceEnvironment(
     connectionState: environment.connection.phase,
     connectionError: environment.connection.error,
     connectionErrorTraceId: environment.connection.traceId,
+    connectionBlockedReason: environment.connection.blockedReason,
   };
 }
 
@@ -84,6 +91,10 @@ export function projectWorkspaceState(input: {
       environment.connectionState === "reconnecting",
   );
 
+  const refusedEnvironments = input.environments.filter(
+    (environment) => environment.connectionBlockedReason === "pairing",
+  );
+
   return {
     isLoadingConnections: !input.isReady,
     hasConnections: input.environments.length > 0,
@@ -94,6 +105,7 @@ export function projectWorkspaceState(input: {
       input.environments.some((environment) => environment.connectionState === "connected"),
     hasConnectingEnvironment: connectingEnvironments.length > 0,
     connectingEnvironments,
+    refusedEnvironments,
     connectionState: overallConnectionState(input.environments, input.networkStatus),
     connectionError:
       input.environments.find((environment) => environment.connectionError !== null)

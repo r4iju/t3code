@@ -17,6 +17,7 @@ import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ClientCapabilities from "../platform/capabilities.ts";
 import * as TokenStore from "../authorization/tokenStore.ts";
@@ -35,6 +36,7 @@ import * as Connectivity from "./connectivity.ts";
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import * as ConnectionDriver from "./driver.ts";
 import {
+  ConnectionBlockedError,
   ConnectionTransientError,
   BearerConnectionTarget,
   PrimaryConnectionTarget,
@@ -133,7 +135,9 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   initialProfiles: ReadonlyArray<ConnectionProfile> = [],
   initialCredentials: ReadonlyArray<readonly [string, ConnectionCredential]> = [],
   options?: {
-    readonly beforeSessionConnect?: (environmentId: EnvironmentId) => Effect.Effect<void>;
+    readonly beforeSessionConnect?: (
+      environmentId: EnvironmentId,
+    ) => Effect.Effect<void, ConnectionBlockedError>;
     readonly beforeRegistrationRegister?: (
       registration: ConnectionRegistration,
     ) => Effect.Effect<void, Persistence.ConnectionPersistenceError>;
@@ -811,6 +815,85 @@ describe("EnvironmentRegistry", () => {
           ),
         ).toEqual(BEARER_PROFILE);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
+    }),
+  );
+
+  it.effect("re-pairing a refused environment replaces its blocked runtime", () =>
+    Effect.gen(function* () {
+      const refused = yield* Ref.make(false);
+      const harness = yield* makeHarness(
+        [BEARER_TARGET],
+        [BEARER_PROFILE],
+        [[BEARER_TARGET.connectionId, BEARER_CREDENTIAL]],
+        {
+          beforeSessionConnect: () =>
+            Effect.gen(function* () {
+              if (yield* Ref.get(refused)) {
+                return yield* new ConnectionBlockedError({
+                  reason: "pairing",
+                  detail: "The environment credential is invalid.",
+                });
+              }
+            }),
+        },
+      );
+
+      yield* Effect.gen(function* () {
+        const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
+        yield* registry.start;
+        yield* awaitConnectionState(
+          registry,
+          BEARER_TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
+        const active = (yield* Ref.get(harness.sessions))[0];
+        expect(active).toBeDefined();
+
+        // The server revokes this device: it hangs up and refuses the reconnect.
+        yield* Ref.set(refused, true);
+        const backoffFiber = yield* Effect.forkChild(
+          awaitConnectionState(
+            registry,
+            BEARER_TARGET.environmentId,
+            (state) => state.phase === "backoff",
+          ),
+        );
+        yield* Effect.yieldNow;
+        yield* Deferred.fail(
+          active!.closed,
+          new ConnectionTransientError({ reason: "transport", detail: "Disconnected." }),
+        );
+        yield* Fiber.join(backoffFiber);
+        const blockedFiber = yield* Effect.forkChild(
+          awaitConnectionState(
+            registry,
+            BEARER_TARGET.environmentId,
+            (state) => state.phase === "blocked",
+          ),
+        );
+        yield* TestClock.adjust("3 seconds");
+        const blocked = yield* Fiber.join(blockedFiber);
+        expect(blocked.lastFailure?._tag).toBe("ConnectionBlockedError");
+
+        yield* Ref.set(refused, false);
+        const credential = new BearerConnectionCredential({ token: "fresh-token" });
+        yield* registry.register(
+          new BearerConnectionRegistration({
+            target: BEARER_TARGET,
+            profile: BEARER_PROFILE,
+            credential,
+          }),
+        );
+        yield* awaitConnectionState(
+          registry,
+          BEARER_TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
+        expect((yield* Ref.get(harness.storedCredentials)).get(BEARER_TARGET.connectionId)).toEqual(
+          credential,
+        );
+        expect(yield* Ref.get(harness.sessions)).toHaveLength(2);
+      }).pipe(Effect.provide(harness.layer), Effect.scoped, Effect.provide(TestClock.layer()));
     }),
   );
 

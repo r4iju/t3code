@@ -1,52 +1,11 @@
-import {
-  type EnvironmentConnectionPhase,
-  type EnvironmentConnectionPresentation,
-} from "@t3tools/client-runtime/connection";
+import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import { useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
-
-function noticeTitle(phase: EnvironmentConnectionPhase, environmentLabel: string): string {
-  switch (phase) {
-    case "offline":
-      return "You are offline";
-    case "connecting":
-      return `Connecting to ${environmentLabel}...`;
-    case "reconnecting":
-      return `Reconnecting to ${environmentLabel}...`;
-    case "error":
-      return `${environmentLabel} is unavailable`;
-    case "available":
-      return `${environmentLabel} is disconnected`;
-    case "connected":
-      return "";
-  }
-}
-
-function noticeDetail(
-  phase: EnvironmentConnectionPhase,
-  resourceName: string,
-  error: string | null,
-): string {
-  if (error) {
-    return `The app will keep retrying automatically. ${error}`;
-  }
-
-  switch (phase) {
-    case "offline":
-      return `Cached data remains available. The ${resourceName} will load when your connection returns.`;
-    case "connecting":
-    case "reconnecting":
-      return `The ${resourceName} will load as soon as the environment is ready.`;
-    case "available":
-    case "error":
-      return `Reconnect the environment to load the ${resourceName}.`;
-    case "connected":
-      return "";
-  }
-}
+import { environmentConnectionNoticeContent } from "./environmentConnectionNoticeContent";
 
 export function EnvironmentConnectionNotice(props: {
   readonly environmentLabel: string;
@@ -54,6 +13,8 @@ export function EnvironmentConnectionNotice(props: {
   readonly resourceName: string;
   readonly onRetry: () => void;
 }) {
+  const navigation = useNavigation();
+  const content = environmentConnectionNoticeContent(props);
   const isRetrying =
     props.connection.phase === "connecting" || props.connection.phase === "reconnecting";
 
@@ -71,11 +32,9 @@ export function EnvironmentConnectionNotice(props: {
           />
         )}
 
-        <Text className="text-center text-lg font-t3-bold text-foreground">
-          {noticeTitle(props.connection.phase, props.environmentLabel)}
-        </Text>
+        <Text className="text-center text-lg font-t3-bold text-foreground">{content.title}</Text>
         <Text className="text-center text-sm leading-normal text-foreground-muted">
-          {noticeDetail(props.connection.phase, props.resourceName, props.connection.error)}
+          {content.detail}
           {props.connection.traceId ? (
             <>
               {" Trace ID: "}
@@ -95,13 +54,17 @@ export function EnvironmentConnectionNotice(props: {
           ) : null}
         </Text>
 
-        {props.connection.phase !== "offline" ? (
+        {content.action !== null ? (
           <Pressable
             accessibilityRole="button"
             className="mt-1 rounded-full bg-subtle px-4 py-2.5 active:opacity-70"
-            onPress={props.onRetry}
+            onPress={
+              content.action.kind === "pairAgain"
+                ? () => navigation.navigate("ConnectionsNew")
+                : props.onRetry
+            }
           >
-            <Text className="text-sm font-t3-bold text-foreground">Retry now</Text>
+            <Text className="text-sm font-t3-bold text-foreground">{content.action.label}</Text>
           </Pressable>
         ) : null}
       </View>

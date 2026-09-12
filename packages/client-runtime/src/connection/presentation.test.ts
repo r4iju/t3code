@@ -136,6 +136,19 @@ describe("connection presentation", () => {
     expect(connectionStatusTitle(connection)).toBe("Failed to connect. Reconnecting...");
   });
 
+  it("tells a refused device to pair again instead of retrying", () => {
+    const connection = {
+      phase: "error",
+      error: "The environment credential is invalid.",
+      traceId: null,
+      blockedReason: "pairing",
+    } as const;
+    expect(connectionStatusText(connection)).toBe(
+      "No longer accepts this device. Pair again to reconnect.",
+    );
+    expect(connectionStatusTitle(connection)).toBe("No longer accepts this device");
+  });
+
   it("surfaces why a blocked connection stopped retrying", () => {
     expect(
       presentEnvironmentConnection(

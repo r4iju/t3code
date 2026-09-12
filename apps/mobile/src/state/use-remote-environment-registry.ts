@@ -97,6 +97,7 @@ export function useRemoteConnectionStatus() {
         connectionState: environment.connectionState,
         connectionError: environment.connectionError,
         connectionErrorTraceId: environment.connectionErrorTraceId,
+        connectionBlockedReason: environment.connectionBlockedReason,
       })),
     [workspace.environments],
   );

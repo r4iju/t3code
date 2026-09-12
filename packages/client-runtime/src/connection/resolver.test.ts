@@ -190,7 +190,7 @@ describe("ConnectionResolver", () => {
   it.effect("blocks a cookie-authenticated primary environment whose session was refused", () =>
     Effect.gen(function* () {
       const refused = new ConnectionBlockedError({
-        reason: "authentication",
+        reason: "pairing",
         detail: "The environment credential is invalid.",
       });
       const brokerLayer = yield* makeDependencies({

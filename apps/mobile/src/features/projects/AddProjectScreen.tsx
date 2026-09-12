@@ -18,6 +18,7 @@ import {
 } from "@t3tools/client-runtime/operations/projects";
 import {
   connectionStatusText,
+  type ConnectionBlockedReason,
   type EnvironmentConnectionPhase,
 } from "@t3tools/client-runtime/connection";
 import {
@@ -77,6 +78,7 @@ interface EnvironmentOption {
   readonly connectionState: EnvironmentConnectionPhase;
   readonly connectionError: string | null;
   readonly connectionErrorTraceId: string | null;
+  readonly connectionBlockedReason: ConnectionBlockedReason | null;
 }
 
 const environmentOptionOrder = Order.mapInput(
@@ -365,6 +367,7 @@ function useEnvironmentOptions(): ReadonlyArray<EnvironmentOption> {
         connectionState: runtime?.connectionState ?? "available",
         connectionError: runtime?.connectionError ?? null,
         connectionErrorTraceId: runtime?.connectionErrorTraceId ?? null,
+        connectionBlockedReason: runtime?.connectionBlockedReason ?? null,
       };
     });
     return Arr.sort(options, environmentOptionOrder);
@@ -496,6 +499,7 @@ export function AddProjectSourceScreen() {
                         phase: environment.connectionState,
                         error: environment.connectionError,
                         traceId: environment.connectionErrorTraceId,
+                        blockedReason: environment.connectionBlockedReason,
                       })
                 }
                 icon={
