@@ -45,6 +45,7 @@ import * as Option from "effect/Option";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
+import { clientSessionPresenceLabel } from "./clientSessionPresence";
 import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
   applyWslEnableSelection,
@@ -449,6 +450,8 @@ function toDesktopClientSessionRecord(clientSession: AuthClientSession): ServerC
       clientSession.lastConnectedAt === null
         ? null
         : DateTime.formatIso(clientSession.lastConnectedAt),
+    lastSeenAt:
+      clientSession.lastSeenAt === null ? null : DateTime.formatIso(clientSession.lastSeenAt),
   };
 }
 
@@ -956,6 +959,7 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
     : lastConnectedAt
       ? `Last connected at ${formatAccessTimestamp(lastConnectedAt)}`
       : "Not connected yet.";
+  const presenceLabel = clientSessionPresenceLabel(clientSession, nowMs);
   const deviceInfoBits = [
     clientSession.client.deviceType !== "unknown"
       ? clientSession.client.deviceType[0]?.toUpperCase() + clientSession.client.deviceType.slice(1)
@@ -987,6 +991,8 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
             ) : null}
           </div>
           <p className="text-xs text-muted-foreground">
+            {presenceLabel}
+            <span aria-hidden> · </span>
             {deviceInfoBits.length > 0 ? (
               <>
                 {deviceInfoBits.join(" · ")}

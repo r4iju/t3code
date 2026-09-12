@@ -68,6 +68,7 @@ const failingSessionLookupRepositoryLayer = Layer.succeed(AuthSessions.AuthSessi
   revoke: () => Effect.fail(repositoryFailure),
   revokeAllExcept: () => Effect.fail(repositoryFailure),
   setLastConnectedAt: () => Effect.void,
+  setLastSeenAt: () => Effect.void,
   setClientConnection: () => Effect.void,
 });
 
@@ -429,6 +430,108 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(afterReconnect[0]?.connected).toBe(true);
       expect(afterReconnect[0]?.lastConnectedAt).not.toBeNull();
       expect(afterReconnect[0]?.lastConnectedAt?.toString()).not.toBe(firstConnectedAt?.toString());
+    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+  );
+
+  it.effect("records last seen on socket open and close", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        subject: "seen-socket",
+        method: "bearer-access-token",
+      });
+      expect((yield* sessions.listActive())[0]?.lastSeenAt).toBeNull();
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* sessions.markConnected(issued.sessionId);
+      const opened = (yield* sessions.listActive())[0]?.lastSeenAt;
+      expect(opened?.epochMilliseconds).toBe(Duration.toMillis(Duration.minutes(1)));
+
+      yield* TestClock.adjust(Duration.days(3));
+      yield* sessions.markDisconnected(issued.sessionId);
+      const closed = (yield* sessions.listActive())[0]?.lastSeenAt;
+      expect(closed?.epochMilliseconds).toBe(
+        Duration.toMillis(Duration.sum(Duration.minutes(1), Duration.days(3))),
+      );
+    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+  );
+
+  it.effect("coalesces last-seen writes from authenticated requests to one per hour", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({ subject: "seen-http", method: "bearer-access-token" });
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* sessions.recordSeen(issued.sessionId);
+      const first = (yield* sessions.listActive())[0]?.lastSeenAt;
+      expect(first?.epochMilliseconds).toBe(Duration.toMillis(Duration.minutes(1)));
+
+      yield* TestClock.adjust(Duration.minutes(30));
+      yield* sessions.recordSeen(issued.sessionId);
+      expect((yield* sessions.listActive())[0]?.lastSeenAt?.epochMilliseconds).toBe(
+        first?.epochMilliseconds,
+      );
+
+      yield* TestClock.adjust(Duration.minutes(31));
+      yield* sessions.recordSeen(issued.sessionId);
+      expect((yield* sessions.listActive())[0]?.lastSeenAt?.epochMilliseconds).toBe(
+        Duration.toMillis(Duration.minutes(62)),
+      );
+    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+  );
+
+  it.effect("never advances last seen on a revoked session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const repository = yield* AuthSessions.AuthSessionRepository;
+      const issued = yield* sessions.issue({
+        subject: "seen-revoked",
+        method: "bearer-access-token",
+      });
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* sessions.markConnected(issued.sessionId);
+      yield* TestClock.adjust(Duration.minutes(1));
+      expect(yield* sessions.revoke(issued.sessionId)).toBe(true);
+
+      yield* TestClock.adjust(Duration.hours(2));
+      yield* sessions.markDisconnected(issued.sessionId);
+      yield* sessions.recordSeen(issued.sessionId);
+
+      const row = yield* repository.getById({ sessionId: issued.sessionId });
+      expect(Option.getOrThrow(row).lastSeenAt?.epochMilliseconds).toBe(
+        Duration.toMillis(Duration.minutes(1)),
+      );
+    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+  );
+
+  it.effect("publishes a client update when last seen advances", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({
+        subject: "seen-stream",
+        method: "bearer-access-token",
+      });
+      const changes = yield* Queue.unbounded<SessionStore.SessionCredentialChange>();
+      const streamFiber = yield* Effect.forkChild(
+        sessions.streamChanges.pipe(Stream.runForEach((change) => Queue.offer(changes, change))),
+      );
+      yield* Effect.yieldNow;
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* sessions.recordSeen(issued.sessionId);
+      const change = yield* Queue.take(changes);
+      expect(change.type).toBe("clientUpserted");
+      if (change.type === "clientUpserted") {
+        expect(change.clientSession.lastSeenAt?.epochMilliseconds).toBe(
+          Duration.toMillis(Duration.minutes(1)),
+        );
+      }
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* sessions.recordSeen(issued.sessionId);
+      expect(yield* Queue.size(changes)).toBe(0);
+      yield* Fiber.interrupt(streamFiber);
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
   );
 

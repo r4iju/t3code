@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as HttpApiSchema from "effect/unstable/httpapi/HttpApiSchema";
 
@@ -248,6 +249,13 @@ export const AuthClientSession = Schema.Struct({
   issuedAt: Schema.DateTimeUtc,
   expiresAt: Schema.DateTimeUtc,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtc),
+  /**
+   * Last authenticated traffic from this client; null until it first connects.
+   * Defaults so newer clients still decode sessions from servers that predate it.
+   */
+  lastSeenAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   connected: Schema.Boolean,
   current: Schema.Boolean,
 });

@@ -405,6 +405,12 @@ export class SessionStore extends Context.Service<
     ) => Effect.Effect<number, SessionCredentialInternalError>;
     readonly markConnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly markDisconnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
+    /**
+     * Record that a fully authenticated request just used this session. Callers
+     * run this after every check that can still reject the request, so a bad
+     * DPoP proof never counts as the client being seen.
+     */
+    readonly recordSeen: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly recordClientConnection: (
       sessionId: AuthSessionId,
       client: {
@@ -418,6 +424,8 @@ export class SessionStore extends Context.Service<
 const SIGNING_SECRET_NAME = "server-signing-key";
 const DEFAULT_SESSION_TTL = Duration.days(30);
 const DEFAULT_WEBSOCKET_TOKEN_TTL = Duration.minutes(5);
+// A busy client refreshes last-seen at most this often; sockets opening and closing always write.
+const LAST_SEEN_WRITE_INTERVAL = Duration.hours(1);
 
 const SessionClaims = Schema.Struct({
   v: Schema.Literal(1),
@@ -483,6 +491,7 @@ export const make = Effect.gen(function* () {
   const authSessions = yield* AuthSessions.AuthSessionRepository;
   const signingSecret = yield* secretStore.getOrCreateRandom(SIGNING_SECRET_NAME, 32);
   const connectedSessionsRef = yield* Ref.make(new Map<AuthSessionId, number>());
+  const lastSeenWritesRef = yield* Ref.make(new Map<AuthSessionId, number>());
   const changesPubSub = yield* PubSub.unbounded<SessionCredentialChange>();
   const cookieInput = {
     mode: serverConfig.mode,
@@ -502,10 +511,14 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.asVoid);
 
   const emitRemoved = (sessionId: AuthSessionId) =>
-    PubSub.publish(changesPubSub, {
-      type: "clientRemoved",
-      sessionId,
-    }).pipe(Effect.asVoid);
+    Ref.update(lastSeenWritesRef, (current) => {
+      const next = new Map(current);
+      next.delete(sessionId);
+      return next;
+    }).pipe(
+      Effect.andThen(PubSub.publish(changesPubSub, { type: "clientRemoved", sessionId })),
+      Effect.asVoid,
+    );
 
   const loadActiveSession = (sessionId: AuthSessionId) =>
     Effect.gen(function* () {
@@ -530,10 +543,47 @@ export const make = Effect.gen(function* () {
           issuedAt: row.value.issuedAt,
           expiresAt: row.value.expiresAt,
           lastConnectedAt: row.value.lastConnectedAt,
+          lastSeenAt: row.value.lastSeenAt,
           connected,
         }),
       );
     });
+
+  const writeLastSeen = (sessionId: AuthSessionId, seenAt: DateTime.Utc) =>
+    authSessions
+      .setLastSeenAt({ sessionId, lastSeenAt: seenAt })
+      .pipe(
+        Effect.andThen(
+          Ref.update(lastSeenWritesRef, (current) =>
+            new Map(current).set(sessionId, seenAt.epochMilliseconds),
+          ),
+        ),
+      );
+
+  // Best-effort: seeing a client must never fail the request that proved it.
+  const recordSeen: SessionStore["Service"]["recordSeen"] = (sessionId) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const lastWrite = (yield* Ref.get(lastSeenWritesRef)).get(sessionId);
+      if (
+        lastWrite !== undefined &&
+        now.epochMilliseconds - lastWrite < Duration.toMillis(LAST_SEEN_WRITE_INTERVAL)
+      ) {
+        return;
+      }
+      yield* writeLastSeen(sessionId, now);
+      const session = yield* loadActiveSession(sessionId);
+      if (Option.isSome(session)) {
+        yield* emitUpsert(session.value);
+      }
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Failed to record session last-seen time.").pipe(
+          Effect.annotateLogs({ sessionId, cause }),
+        ),
+      ),
+      Effect.withSpan("SessionStore.recordSeen"),
+    );
 
   const markConnected: SessionStore["Service"]["markConnected"] = (sessionId) =>
     Ref.modify(connectedSessionsRef, (current) => {
@@ -546,10 +596,9 @@ export const make = Effect.gen(function* () {
         wasDisconnected
           ? DateTime.now.pipe(
               Effect.flatMap((lastConnectedAt) =>
-                authSessions.setLastConnectedAt({
-                  sessionId,
-                  lastConnectedAt,
-                }),
+                authSessions
+                  .setLastConnectedAt({ sessionId, lastConnectedAt })
+                  .pipe(Effect.andThen(writeLastSeen(sessionId, lastConnectedAt))),
               ),
             )
           : Effect.void,
@@ -592,7 +641,7 @@ export const make = Effect.gen(function* () {
           );
 
   const markDisconnected: SessionStore["Service"]["markDisconnected"] = (sessionId) =>
-    Ref.update(connectedSessionsRef, (current) => {
+    Ref.modify(connectedSessionsRef, (current) => {
       const next = new Map(current);
       const remaining = (next.get(sessionId) ?? 0) - 1;
       if (remaining > 0) {
@@ -600,8 +649,13 @@ export const make = Effect.gen(function* () {
       } else {
         next.delete(sessionId);
       }
-      return next;
+      return [remaining <= 0, next] as const;
     }).pipe(
+      Effect.flatMap((closedLastSocket) =>
+        closedLastSocket
+          ? DateTime.now.pipe(Effect.flatMap((seenAt) => writeLastSeen(sessionId, seenAt)))
+          : Effect.void,
+      ),
       Effect.flatMap(() => loadActiveSession(sessionId)),
       Effect.flatMap((session) =>
         Option.isSome(session) ? emitUpsert(session.value) : emitRemoved(sessionId),
@@ -701,6 +755,7 @@ export const make = Effect.gen(function* () {
           issuedAt,
           expiresAt,
           lastConnectedAt: null,
+          lastSeenAt: null,
           connected: false,
         }),
       );
@@ -902,6 +957,7 @@ export const make = Effect.gen(function* () {
           issuedAt: row.issuedAt,
           expiresAt: row.expiresAt,
           lastConnectedAt: row.lastConnectedAt,
+          lastSeenAt: row.lastSeenAt,
           connected: connectedSessions.has(row.sessionId),
         }),
       );
@@ -1007,6 +1063,7 @@ export const make = Effect.gen(function* () {
     revokeAllExcept,
     markConnected,
     markDisconnected,
+    recordSeen,
     recordClientConnection,
   });
 });

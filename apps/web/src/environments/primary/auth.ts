@@ -126,6 +126,7 @@ export interface ServerClientSessionRecord {
   readonly issuedAt: string;
   readonly expiresAt: string;
   readonly lastConnectedAt: string | null;
+  readonly lastSeenAt: string | null;
   readonly connected: boolean;
   readonly current: boolean;
 }

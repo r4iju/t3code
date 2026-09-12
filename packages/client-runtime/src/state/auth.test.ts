@@ -26,6 +26,7 @@ describe("applyAuthAccessStreamEvent", () => {
       issuedAt: DateTime.makeUnsafe("2036-04-07T00:00:00.000Z"),
       expiresAt: DateTime.makeUnsafe("2036-05-07T00:00:00.000Z"),
       lastConnectedAt: null,
+      lastSeenAt: null,
       connected: true,
       current: false,
     } as const;

@@ -161,6 +161,7 @@ export function formatSessionList(
         issuedAt: toIsoString(session.issuedAt),
         expiresAt: toIsoString(session.expiresAt),
         lastConnectedAt: session.lastConnectedAt ? toIsoString(session.lastConnectedAt) : null,
+        lastSeenAt: session.lastSeenAt ? toIsoString(session.lastSeenAt) : null,
       })),
       null,
       2,
@@ -184,6 +185,7 @@ export function formatSessionList(
           `  last connected: ${
             session.lastConnectedAt ? toIsoString(session.lastConnectedAt) : "never"
           }`,
+          `  last seen: ${session.lastSeenAt ? toIsoString(session.lastSeenAt) : "never"}`,
           `  expires: ${toIsoString(session.expiresAt)}`,
         ].join(newline),
       )

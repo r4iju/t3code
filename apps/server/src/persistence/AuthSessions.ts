@@ -40,6 +40,7 @@ export const AuthSessionRecord = Schema.Struct({
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  lastSeenAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   revokedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 });
 export type AuthSessionRecord = typeof AuthSessionRecord.Type;
@@ -91,6 +92,12 @@ export const SetAuthSessionLastConnectedAtInput = Schema.Struct({
 });
 export type SetAuthSessionLastConnectedAtInput = typeof SetAuthSessionLastConnectedAtInput.Type;
 
+export const SetAuthSessionLastSeenAtInput = Schema.Struct({
+  sessionId: AuthSessionId,
+  lastSeenAt: Schema.DateTimeUtcFromString,
+});
+export type SetAuthSessionLastSeenAtInput = typeof SetAuthSessionLastSeenAtInput.Type;
+
 export const SetAuthSessionClientConnectionInput = Schema.Struct({
   sessionId: AuthSessionId,
   surface: Schema.NullOr(ClientSurface),
@@ -122,6 +129,10 @@ export class AuthSessionRepository extends Context.Service<
     readonly setLastConnectedAt: (
       input: SetAuthSessionLastConnectedAtInput,
     ) => Effect.Effect<void, AuthSessionRepositoryError>;
+    /** Advances last_seen_at only forward and only on live sessions. */
+    readonly setLastSeenAt: (
+      input: SetAuthSessionLastSeenAtInput,
+    ) => Effect.Effect<void, AuthSessionRepositoryError>;
     readonly setClientConnection: (
       input: SetAuthSessionClientConnectionInput,
     ) => Effect.Effect<void, AuthSessionRepositoryError>;
@@ -142,6 +153,7 @@ const AuthSessionDbRow = Schema.Struct({
   issuedAt: Schema.DateTimeUtcFromString,
   expiresAt: Schema.DateTimeUtcFromString,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  lastSeenAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   revokedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 });
 
@@ -159,6 +171,7 @@ const AuthSessionRawDbRow = Schema.Struct({
   issuedAt: Schema.Unknown,
   expiresAt: Schema.Unknown,
   lastConnectedAt: Schema.Unknown,
+  lastSeenAt: Schema.Unknown,
   revokedAt: Schema.Unknown,
 });
 
@@ -181,6 +194,7 @@ function toAuthSessionRecord(row: typeof AuthSessionDbRow.Type): AuthSessionReco
     issuedAt: row.issuedAt,
     expiresAt: row.expiresAt,
     lastConnectedAt: row.lastConnectedAt,
+    lastSeenAt: row.lastSeenAt,
     revokedAt: row.revokedAt,
   };
 }
@@ -260,6 +274,7 @@ export const make = Effect.gen(function* () {
           issued_at AS "issuedAt",
           expires_at AS "expiresAt",
           last_connected_at AS "lastConnectedAt",
+          last_seen_at AS "lastSeenAt",
           revoked_at AS "revokedAt"
         FROM auth_sessions
         WHERE session_id = ${sessionId}
@@ -300,6 +315,7 @@ export const make = Effect.gen(function* () {
           issued_at AS "issuedAt",
           expires_at AS "expiresAt",
           last_connected_at AS "lastConnectedAt",
+          last_seen_at AS "lastSeenAt",
           revoked_at AS "revokedAt"
         FROM auth_sessions
         WHERE revoked_at IS NULL
@@ -316,6 +332,18 @@ export const make = Effect.gen(function* () {
         SET last_connected_at = ${lastConnectedAt}
         WHERE session_id = ${sessionId}
           AND revoked_at IS NULL
+      `,
+  });
+
+  const setLastSeenAtRow = SqlSchema.void({
+    Request: SetAuthSessionLastSeenAtInput,
+    execute: ({ sessionId, lastSeenAt }) =>
+      sql`
+        UPDATE auth_sessions
+        SET last_seen_at = ${lastSeenAt}
+        WHERE session_id = ${sessionId}
+          AND revoked_at IS NULL
+          AND (last_seen_at IS NULL OR last_seen_at < ${lastSeenAt})
       `,
   });
 
@@ -479,6 +507,17 @@ export const make = Effect.gen(function* () {
       ),
     );
 
+  const setLastSeenAt: AuthSessionRepository["Service"]["setLastSeenAt"] = (input) =>
+    setLastSeenAtRow(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "AuthSessionRepository.setLastSeenAt:query",
+          "AuthSessionRepository.setLastSeenAt:encodeRequest",
+          { sessionId: input.sessionId },
+        ),
+      ),
+    );
+
   const setClientConnection: AuthSessionRepository["Service"]["setClientConnection"] = (input) =>
     setClientConnectionRow(input).pipe(
       Effect.mapError(
@@ -498,6 +537,7 @@ export const make = Effect.gen(function* () {
     revoke,
     revokeAllExcept,
     setLastConnectedAt,
+    setLastSeenAt,
     setClientConnection,
   } satisfies AuthSessionRepository["Service"];
 });
