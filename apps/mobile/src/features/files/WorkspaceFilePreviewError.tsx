@@ -37,6 +37,7 @@ export function WorkspaceFilePreviewError(props: {
               phase: "available",
               error: null,
               traceId: null,
+              blockedReason: null,
             }
           }
           resourceName="preview"

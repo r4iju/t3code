@@ -397,6 +397,8 @@ export class SessionStore extends Context.Service<
       SessionCredentialInternalError
     >;
     readonly streamChanges: Stream.Stream<SessionCredentialChange>;
+    /** Resolves once the session is revoked or replaced, so a live transport can end with it. */
+    readonly awaitRemoval: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly revoke: (
       sessionId: AuthSessionId,
     ) => Effect.Effect<boolean, SessionCredentialInternalError>;
@@ -909,6 +911,33 @@ export const make = Effect.gen(function* () {
     Effect.mapError((cause) => new ActiveSessionsListError({ cause })),
   );
 
+  const awaitRemoval: SessionStore["Service"]["awaitRemoval"] = Effect.fn(
+    "SessionStore.awaitRemoval",
+  )(function* (sessionId) {
+    const changes = yield* PubSub.subscribe(changesPubSub);
+    // Subscribe before reading the row so a revocation that lands in between
+    // shows up in one of the two, never in neither.
+    const row = yield* authSessions
+      .getById({ sessionId })
+      .pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not read session while awaiting its removal.").pipe(
+            Effect.annotateLogs({ sessionId, cause }),
+            Effect.as(Option.none()),
+          ),
+        ),
+      );
+    if (Option.isSome(row) && row.value.revokedAt !== null) {
+      return;
+    }
+    while (true) {
+      const change = yield* PubSub.take(changes);
+      if (change.type === "clientRemoved" && change.sessionId === sessionId) {
+        return;
+      }
+    }
+  }, Effect.scoped);
+
   const revoke: SessionStore["Service"]["revoke"] = Effect.fn("SessionStore.revoke")(
     function* (sessionId) {
       const revokedAt = yield* DateTime.now;
@@ -975,6 +1004,7 @@ export const make = Effect.gen(function* () {
     get streamChanges() {
       return Stream.fromPubSub(changesPubSub);
     },
+    awaitRemoval,
     revoke,
     revokeAllExcept,
     markConnected,

@@ -21,6 +21,7 @@ import {
 import * as ConnectionCredentialStore from "./credentialStore.ts";
 import {
   BearerConnectionTarget,
+  ConnectionBlockedError,
   ConnectionTransientError,
   PrimaryConnectionTarget,
   RelayConnectionTarget,
@@ -67,6 +68,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
   readonly credentials?: ReadonlyArray<readonly [string, ConnectionCredential]>;
   readonly authorizeBearer?: RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization["Service"]["authorizeBearer"];
   readonly authorizeDpop?: RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization["Service"]["authorizeDpop"];
+  readonly authorizeCookieSession?: RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization["Service"]["authorizeCookieSession"];
   readonly primaryBearerToken?: string;
   readonly prepareSsh?: ClientCapabilities.SshEnvironmentGateway["Service"]["prepare"];
 }) => {
@@ -115,6 +117,12 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
           },
         })),
     authorizeDpopHttp: () => Effect.die("unused"),
+    authorizeCookieSession:
+      options?.authorizeCookieSession ??
+      ((input) =>
+        Effect.succeed({
+          socketUrl: `${input.wsBaseUrl}/ws?wsTicket=cookie`,
+        })),
   });
   const ssh = ClientCapabilities.SshEnvironmentGateway.of({
     provision: () => Effect.die("unused"),
@@ -157,7 +165,7 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 });
 
 describe("ConnectionResolver", () => {
-  it.effect("prepares a primary environment without remote capabilities", () =>
+  it.effect("prepares a cookie-authenticated primary environment through a socket ticket", () =>
     Effect.gen(function* () {
       const brokerLayer = yield* makeDependencies();
       const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
@@ -172,11 +180,31 @@ describe("ConnectionResolver", () => {
         environmentId: ENVIRONMENT_ID,
         label: "Primary",
         httpBaseUrl: "http://127.0.0.1:3777",
-        socketUrl:
-          "ws://127.0.0.1:3777/ws?clientSurface=web&clientDeviceType=desktop&connectionMethod=direct",
+        socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=cookie",
         httpAuthorization: null,
         target,
       });
+    }),
+  );
+
+  it.effect("blocks a cookie-authenticated primary environment whose session was refused", () =>
+    Effect.gen(function* () {
+      const refused = new ConnectionBlockedError({
+        reason: "authentication",
+        detail: "The environment credential is invalid.",
+      });
+      const brokerLayer = yield* makeDependencies({
+        authorizeCookieSession: () => Effect.fail(refused),
+      });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
+      const target = new PrimaryConnectionTarget({
+        environmentId: ENVIRONMENT_ID,
+        label: "Primary",
+        httpBaseUrl: "http://127.0.0.1:3777",
+        wsBaseUrl: "ws://127.0.0.1:3777",
+      });
+
+      expect(yield* broker.prepare(catalogEntry(target)).pipe(Effect.flip)).toBe(refused);
     }),
   );
 

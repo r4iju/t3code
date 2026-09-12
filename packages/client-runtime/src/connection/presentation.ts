@@ -2,7 +2,7 @@ import type { ServerConfig } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 
 import type { ConnectionCatalogEntry } from "./catalog.ts";
-import type { SupervisorConnectionState } from "./model.ts";
+import type { ConnectionBlockedReason, SupervisorConnectionState } from "./model.ts";
 
 export type EnvironmentConnectionPhase =
   | "available"
@@ -16,6 +16,8 @@ export interface EnvironmentConnectionPresentation {
   readonly phase: EnvironmentConnectionPhase;
   readonly error: string | null;
   readonly traceId: string | null;
+  /** Why the supervisor stopped retrying; lets a client offer the right recovery. */
+  readonly blockedReason: ConnectionBlockedReason | null;
 }
 
 export interface EnvironmentPresentation {
@@ -29,33 +31,40 @@ export function presentConnectionState(
 ): EnvironmentConnectionPresentation {
   switch (state.phase) {
     case "available":
-      return { phase: "available", error: null, traceId: null };
+      return { phase: "available", error: null, traceId: null, blockedReason: null };
     case "offline":
-      return { phase: "offline", error: null, traceId: null };
+      return { phase: "offline", error: null, traceId: null, blockedReason: null };
     case "connecting":
       return {
         phase: state.attempt <= 1 && state.lastFailure === null ? "connecting" : "reconnecting",
         error: state.lastFailure?.message ?? null,
         traceId: state.lastFailure?.traceId ?? null,
+        blockedReason: null,
       };
     case "connected":
-      return { phase: "connected", error: null, traceId: null };
+      return { phase: "connected", error: null, traceId: null, blockedReason: null };
     case "backoff":
       return {
         phase: "reconnecting",
         error: state.lastFailure?.message ?? null,
         traceId: state.lastFailure?.traceId ?? null,
+        blockedReason: null,
       };
     case "blocked":
       return {
         phase: "error",
         error: state.lastFailure?.message ?? null,
         traceId: state.lastFailure?.traceId ?? null,
+        blockedReason:
+          state.lastFailure?._tag === "ConnectionBlockedError" ? state.lastFailure.reason : null,
       };
   }
 }
 
-export function connectionStatusText(connection: EnvironmentConnectionPresentation): string {
+/** Status copy ignores the blocked reason, so flattened views can call it too. */
+export function connectionStatusText(
+  connection: Omit<EnvironmentConnectionPresentation, "blockedReason">,
+): string {
   switch (connection.phase) {
     case "available":
       return "Available";
@@ -76,7 +85,9 @@ export function connectionStatusText(connection: EnvironmentConnectionPresentati
   }
 }
 
-export function connectionStatusTitle(connection: EnvironmentConnectionPresentation): string {
+export function connectionStatusTitle(
+  connection: Omit<EnvironmentConnectionPresentation, "blockedReason">,
+): string {
   if (connection.phase === "reconnecting" && connection.error) {
     return "Failed to connect. Reconnecting...";
   }

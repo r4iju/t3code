@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import { BearerConnectionProfile, type ConnectionCatalogEntry } from "./catalog.ts";
 import {
   BearerConnectionTarget,
+  ConnectionBlockedError,
   ConnectionTransientError,
   type SupervisorConnectionState,
 } from "./model.ts";
@@ -59,6 +60,7 @@ describe("connection presentation", () => {
       phase: "connecting",
       error: null,
       traceId: null,
+      blockedReason: null,
     });
     expect(
       presentConnectionState(
@@ -76,6 +78,7 @@ describe("connection presentation", () => {
       phase: "reconnecting",
       error: "Socket closed.",
       traceId: "trace-previous",
+      blockedReason: null,
     });
     expect(
       presentConnectionState(
@@ -94,6 +97,7 @@ describe("connection presentation", () => {
       phase: "reconnecting",
       error: "Disconnected.",
       traceId: "trace-1",
+      blockedReason: null,
     });
   });
 
@@ -115,6 +119,7 @@ describe("connection presentation", () => {
       phase: "reconnecting",
       error: "Relay connection timed out.",
       traceId: "trace-retry",
+      blockedReason: null,
     });
   });
 
@@ -123,11 +128,33 @@ describe("connection presentation", () => {
       phase: "reconnecting",
       error: "Relay request timed out.",
       traceId: "trace-retry",
+      blockedReason: null,
     } as const;
     expect(connectionStatusText(connection)).toBe(
       "Failed to connect. Reconnecting... Reason: Relay request timed out.",
     );
     expect(connectionStatusTitle(connection)).toBe("Failed to connect. Reconnecting...");
+  });
+
+  it("surfaces why a blocked connection stopped retrying", () => {
+    expect(
+      presentEnvironmentConnection(
+        supervisorState({
+          phase: "blocked",
+          stage: null,
+          attempt: 3,
+          lastFailure: new ConnectionBlockedError({
+            reason: "authentication",
+            detail: "The environment credential is invalid.",
+          }),
+        }),
+      ),
+    ).toEqual({
+      phase: "error",
+      error: "The environment credential is invalid.",
+      traceId: null,
+      blockedReason: "authentication",
+    });
   });
 
   it("presents the supervisor's offline state without consulting shell state", () => {
@@ -143,6 +170,7 @@ describe("connection presentation", () => {
       phase: "offline",
       error: null,
       traceId: null,
+      blockedReason: null,
     });
   });
 
@@ -159,6 +187,7 @@ describe("connection presentation", () => {
       phase: "connected",
       error: null,
       traceId: null,
+      blockedReason: null,
     });
   });
 
@@ -177,6 +206,7 @@ describe("connection presentation", () => {
       phase: "available",
       error: null,
       traceId: null,
+      blockedReason: null,
     });
   });
 });

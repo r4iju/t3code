@@ -2421,6 +2421,32 @@ export default function ChatView(props: ChatViewProps) {
           title: `${unavailableConnection.phase === "connecting" ? "Connecting" : "Reconnecting"} to ${activeEnvironmentUnavailableState.label}`,
           description: "Finishing an update",
         });
+      } else if (unavailableConnection.blockedReason === "authentication") {
+        // The environment refused this device's credential, so retrying is
+        // pointless; the only way back is pairing again.
+        const isPrimary = activeEnvironmentUnavailableState.environmentId === primaryEnvironmentId;
+        items.push({
+          id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
+          variant: "error",
+          icon: <WifiOffIcon />,
+          title: `${activeEnvironmentUnavailableState.label} no longer accepts this device`,
+          description: "Pair again to continue",
+          actions: isPrimary ? (
+            // Full load, not a router hop: the auth gate caches "authenticated"
+            // for the page lifetime and must re-resolve against the server.
+            <Button size="xs" variant="ghost" onClick={() => window.location.assign("/pair")}>
+              Pair again
+            </Button>
+          ) : (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => void navigate({ to: "/settings/connections" })}
+            >
+              Connections
+            </Button>
+          ),
+        });
       } else {
         items.push({
           id: `environment-unavailable:${activeEnvironmentUnavailableState.environmentId}`,
@@ -2540,6 +2566,7 @@ export default function ChatView(props: ChatViewProps) {
     automaticEnvironment,
     autoBalanceUpdateBanner,
     activeEnvironmentUnavailableState,
+    primaryEnvironmentId,
     reconnectWarningGraceElapsed,
     handleReconnectActiveEnvironment,
     navigate,

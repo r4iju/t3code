@@ -179,11 +179,15 @@ export const fetchRemoteDpopSessionState = Effect.fn(
   );
 });
 
+/**
+ * Without a bearer token the ticket request rides on the ambient cookie
+ * session, which the same-origin HTTP client sends on its own.
+ */
 export const issueRemoteWebSocketTicket = Effect.fn(
   "clientRuntime.authorization.issueRemoteWebSocketTicket",
 )(function* (input: {
   readonly httpBaseUrl: string;
-  readonly bearerToken: string;
+  readonly bearerToken?: string | undefined;
   readonly timeoutMs?: number;
 }) {
   const client = yield* makeEnvironmentHttpApiClient(input.httpBaseUrl);
@@ -191,9 +195,8 @@ export const issueRemoteWebSocketTicket = Effect.fn(
     environmentEndpointUrl(input.httpBaseUrl, "/api/auth/websocket-ticket"),
     input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
     client.auth.webSocketTicket({
-      headers: {
-        authorization: `Bearer ${input.bearerToken}`,
-      },
+      headers:
+        input.bearerToken === undefined ? {} : { authorization: `Bearer ${input.bearerToken}` },
     }),
   );
 });
@@ -224,7 +227,7 @@ export const resolveRemoteWebSocketConnectionUrl = Effect.fn(
 )(function* (input: {
   readonly wsBaseUrl: string;
   readonly httpBaseUrl: string;
-  readonly bearerToken: string;
+  readonly bearerToken?: string | undefined;
   readonly clientMetadata?: AuthClientPresentationMetadata;
   readonly connectionMethod?: ClientConnectionMethod;
   readonly timeoutMs?: number;

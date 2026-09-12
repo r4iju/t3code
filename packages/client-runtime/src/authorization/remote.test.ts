@@ -493,6 +493,36 @@ describe("remote environment authorization", () => {
     }),
   );
 
+  it.effect(
+    "requests a websocket ticket on the ambient cookie session when no bearer is given",
+    () =>
+      Effect.gen(function* () {
+        const fetch = recordedFetch(
+          Response.json(
+            {
+              ticket: "cookie-ticket",
+              expiresAt: "2026-05-01T12:05:00.000Z",
+            },
+            { status: 200 },
+          ),
+        );
+
+        const url = yield* resolveRemoteWebSocketConnectionUrl({
+          wsBaseUrl: "ws://127.0.0.1:3777",
+          httpBaseUrl: "http://127.0.0.1:3777",
+          connectionMethod: "direct",
+        }).pipe(provideRemoteHttp(fetch.fetchFn));
+
+        expect(url).toBe("ws://127.0.0.1:3777/ws?wsTicket=cookie-ticket&connectionMethod=direct");
+        expectFetchCall(fetch.calls, 1, {
+          url: "http://127.0.0.1:3777/api/auth/websocket-ticket",
+          method: "POST",
+        });
+        const [, init] = fetch.calls[0] ?? [];
+        expect(new Headers(init?.headers).has("authorization")).toBe(false);
+      }),
+  );
+
   it.effect("mints a websocket url that targets the rpc route with a short-lived ticket", () =>
     Effect.gen(function* () {
       const fetch = recordedFetch(
