@@ -22,6 +22,7 @@ function connectionStatusLabel(environment: ConnectedEnvironmentSummary): string
     phase: environment.connectionState,
     error: environment.connectionError,
     traceId: environment.connectionErrorTraceId,
+    blockedReason: environment.connectionBlockedReason,
   });
 }
 
@@ -30,6 +31,7 @@ export function ConnectionEnvironmentRow(props: {
   readonly expanded: boolean;
   readonly onToggle: () => void;
   readonly onReconnect: (environmentId: EnvironmentId) => void;
+  readonly onPairAgain: () => void;
   readonly onRemove: (environmentId: EnvironmentId) => void;
   readonly onUpdate: (
     environmentId: EnvironmentId,
@@ -44,6 +46,7 @@ export function ConnectionEnvironmentRow(props: {
   const statusLabel = connectionStatusLabel(props.environment);
   const statusTraceId = props.environment.connectionErrorTraceId;
   const hasConnectionFailure = props.environment.connectionError !== null;
+  const needsPairing = props.environment.connectionBlockedReason === "authentication";
   const isRetrying =
     props.environment.connectionState === "connecting" ||
     props.environment.connectionState === "reconnecting";
@@ -197,17 +200,34 @@ export function ConnectionEnvironmentRow(props: {
               </Pressable>
             )}
 
-            <Pressable
-              className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-input-border bg-input active:opacity-70"
-              onPress={() => props.onReconnect(props.environment.environmentId)}
-            >
-              <SymbolView
-                name="arrow.clockwise"
-                size={14}
-                tintColorClassName={"accent-icon-subtle"}
-                type="monochrome"
-              />
-            </Pressable>
+            {needsPairing ? (
+              <Pressable
+                className="min-h-[42px] flex-row items-center justify-center gap-1.5 rounded-[14px] border border-input-border bg-input px-3.5 py-2.5 active:opacity-70"
+                onPress={props.onPairAgain}
+              >
+                <SymbolView
+                  name="qrcode.viewfinder"
+                  size={13}
+                  tintColorClassName={"accent-icon-subtle"}
+                  type="monochrome"
+                />
+                <Text className="text-xs font-t3-bold tracking-[0.8px] uppercase text-foreground">
+                  Pair again
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-input-border bg-input active:opacity-70"
+                onPress={() => props.onReconnect(props.environment.environmentId)}
+              >
+                <SymbolView
+                  name="arrow.clockwise"
+                  size={14}
+                  tintColorClassName={"accent-icon-subtle"}
+                  type="monochrome"
+                />
+              </Pressable>
+            )}
 
             <Pressable
               className="h-[42px] w-[42px] items-center justify-center rounded-[14px] border border-danger-border bg-danger active:opacity-70"

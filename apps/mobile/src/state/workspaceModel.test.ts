@@ -107,6 +107,31 @@ describe("mobile workspace projection", () => {
     expect(state.hasReadyEnvironment).toBe(true);
   });
 
+  it("singles out environments that refused this device", () => {
+    const refused = environment("error");
+    const environments = [
+      projectWorkspaceEnvironment({
+        ...refused,
+        connection: {
+          ...refused.connection,
+          error: "The environment credential is invalid.",
+          blockedReason: "authentication",
+        },
+      }),
+    ];
+    const state = projectWorkspaceState({
+      isReady: true,
+      networkStatus: "online",
+      environments,
+      shellSummary: EMPTY_SHELL_SUMMARY,
+    });
+
+    expect(state.refusedEnvironments.map((environment) => environment.environmentId)).toEqual([
+      ENVIRONMENT_ID,
+    ]);
+    expect(state.connectionError).toBe("The environment credential is invalid.");
+  });
+
   it("keeps retained snapshots visible while reconnecting without claiming readiness", () => {
     const environments = [projectWorkspaceEnvironment(environment("reconnecting"))];
     const state = projectWorkspaceState({

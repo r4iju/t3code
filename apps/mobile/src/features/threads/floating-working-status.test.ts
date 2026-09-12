@@ -8,10 +8,12 @@ const status = (
 ) =>
   connectionFloatingStatus({
     connectionError: overrides.connectionError ?? null,
+    connectionBlockedReason: null,
     connectionState,
     environmentLabel:
       overrides.environmentLabel === undefined ? "Mac mini" : overrides.environmentLabel,
     onReconnect: () => {},
+    onPairAgain: () => {},
   });
 
 describe("connectionFloatingStatus", () => {
@@ -55,12 +57,35 @@ describe("connectionFloatingStatus", () => {
     const onReconnect = vi.fn();
     const pill = connectionFloatingStatus({
       connectionError: null,
+      connectionBlockedReason: null,
       connectionState: "offline",
       environmentLabel: "Mac mini",
       onReconnect,
+      onPairAgain: () => {},
     });
     if (pill?.kind !== "connection") throw new Error("expected a connection pill");
     pill.onPress();
     expect(onReconnect).toHaveBeenCalledOnce();
+  });
+
+  it("offers re-pairing instead of a retry once the environment refuses this device", () => {
+    const onReconnect = vi.fn();
+    const onPairAgain = vi.fn();
+    const pill = connectionFloatingStatus({
+      connectionError: "The environment credential is invalid.",
+      connectionBlockedReason: "authentication",
+      connectionState: "error",
+      environmentLabel: "Mac mini",
+      onReconnect,
+      onPairAgain,
+    });
+    expect(pill).toMatchObject({
+      tone: "unavailable",
+      label: "Mac mini no longer accepts this device. Tap to pair again.",
+    });
+    if (pill?.kind !== "connection") throw new Error("expected a connection pill");
+    pill.onPress();
+    expect(onPairAgain).toHaveBeenCalledOnce();
+    expect(onReconnect).not.toHaveBeenCalled();
   });
 });

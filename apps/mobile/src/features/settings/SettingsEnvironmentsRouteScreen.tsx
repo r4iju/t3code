@@ -135,6 +135,12 @@ export function SettingsEnvironmentsRouteScreen() {
                   expanded={expandedId === environment.environmentId}
                   onToggle={() => handleToggle(environment.environmentId)}
                   onReconnect={onReconnectEnvironment}
+                  onPairAgain={() =>
+                    navigation.navigate("SettingsSheet", {
+                      screen: "SettingsContent",
+                      params: { screen: "SettingsEnvironmentNew" },
+                    })
+                  }
                   onRemove={onRemoveEnvironmentPress}
                   onUpdate={handleUpdateEnvironment}
                 />

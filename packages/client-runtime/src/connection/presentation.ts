@@ -61,10 +61,10 @@ export function presentConnectionState(
   }
 }
 
-/** Status copy ignores the blocked reason, so flattened views can call it too. */
-export function connectionStatusText(
-  connection: Omit<EnvironmentConnectionPresentation, "blockedReason">,
-): string {
+export function connectionStatusText(connection: EnvironmentConnectionPresentation): string {
+  if (connection.blockedReason === "authentication") {
+    return "No longer accepts this device. Pair again to reconnect.";
+  }
   switch (connection.phase) {
     case "available":
       return "Available";
@@ -85,9 +85,10 @@ export function connectionStatusText(
   }
 }
 
-export function connectionStatusTitle(
-  connection: Omit<EnvironmentConnectionPresentation, "blockedReason">,
-): string {
+export function connectionStatusTitle(connection: EnvironmentConnectionPresentation): string {
+  if (connection.blockedReason === "authentication") {
+    return "No longer accepts this device";
+  }
   if (connection.phase === "reconnecting" && connection.error) {
     return "Failed to connect. Reconnecting...";
   }

@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/expo";
 import { SymbolView } from "../../components/AppSymbol";
 import {
   connectionStatusText,
+  type ConnectionBlockedReason,
   type EnvironmentConnectionPhase,
 } from "@t3tools/client-runtime/connection";
 import {
@@ -221,6 +222,7 @@ function ConnectedCloudEnvironmentRow(props: {
         borderTop={props.borderTop}
         connectionError={props.environment.connectionError}
         connectionErrorTraceId={props.environment.connectionErrorTraceId}
+        connectionBlockedReason={props.environment.connectionBlockedReason}
         connectionState={props.environment.connectionState}
         errorExpanded={props.errorExpanded}
         label={props.environment.environmentLabel}
@@ -258,6 +260,7 @@ function CloudEnvironmentRow(props: {
       borderTop={props.borderTop}
       connectionError={presentation.connectionError}
       connectionErrorTraceId={presentation.connectionErrorTraceId}
+      connectionBlockedReason={null}
       connectionState={presentation.connectionState}
       errorExpanded={props.errorExpanded}
       label={props.environment.environment.label}
@@ -277,6 +280,7 @@ function CloudEnvironmentRowShell(props: {
   readonly borderTop: boolean;
   readonly connectionError: string | null;
   readonly connectionErrorTraceId: string | null;
+  readonly connectionBlockedReason: ConnectionBlockedReason | null;
   readonly connectionState: EnvironmentConnectionPhase;
   readonly disabled?: boolean;
   readonly errorExpanded: boolean;
@@ -297,6 +301,7 @@ function CloudEnvironmentRowShell(props: {
       phase: props.connectionState,
       error: props.connectionError,
       traceId: props.connectionErrorTraceId,
+      blockedReason: props.connectionBlockedReason,
     });
   const statusClassName = props.connectionError
     ? "text-danger-foreground"

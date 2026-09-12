@@ -1,4 +1,7 @@
-import { type EnvironmentConnectionPhase } from "@t3tools/client-runtime/connection";
+import {
+  type ConnectionBlockedReason,
+  type EnvironmentConnectionPhase,
+} from "@t3tools/client-runtime/connection";
 import {
   appendCodexArtifactTemplateUsePrompt,
   type CodexArtifactTemplate,
@@ -113,6 +116,7 @@ export interface ThreadDetailScreenProps {
   readonly contentPresentation: ThreadContentPresentation;
   readonly screenTone: StatusTone;
   readonly connectionError: string | null;
+  readonly connectionBlockedReason: ConnectionBlockedReason | null;
   readonly environmentLabel: string | null;
   readonly feedbackSubmissions: ReadonlyArray<CodexFeedbackSubmission>;
   readonly onDismissFeedback: (id: MessageId) => void;
@@ -160,6 +164,7 @@ export interface ThreadDetailScreenProps {
   readonly onStopThread: () => void;
   readonly onSendMessage: () => Promise<MessageId | null>;
   readonly onReconnectEnvironment: () => void;
+  readonly onPairAgainEnvironment: () => void;
   readonly onUpdateThreadModelSelection: (modelSelection: ModelSelection) => void;
   readonly onUpdateThreadRuntimeMode: (runtimeMode: RuntimeMode) => void;
   readonly onUpdateThreadInteractionMode: (interactionMode: ProviderInteractionMode) => void;
@@ -353,9 +358,11 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
       connectionError: props.connectionError,
+      connectionBlockedReason: props.connectionBlockedReason,
       connectionState: props.connectionStateLabel,
       environmentLabel: props.environmentLabel,
       onReconnect: props.onReconnectEnvironment,
+      onPairAgain: props.onPairAgainEnvironment,
     });
     if (connectionStatus !== null) {
       return connectionStatus;

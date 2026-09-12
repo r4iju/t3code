@@ -24,6 +24,12 @@ function workspaceConnectionStatusLabel(state: WorkspaceState): string {
   if (state.connectingEnvironments.length > 1) {
     return `Reconnecting ${state.connectingEnvironments.length} environments`;
   }
+  if (state.refusedEnvironments.length === 1) {
+    return `${state.refusedEnvironments[0]!.environmentLabel} no longer accepts this device`;
+  }
+  if (state.refusedEnvironments.length > 1) {
+    return `${state.refusedEnvironments.length} environments no longer accept this device`;
+  }
   if (state.connectionError !== null) return state.connectionError;
   if (state.hasPendingShellSnapshot) {
     return state.hasLoadedShellSnapshot ? "Syncing threads..." : "Loading threads...";

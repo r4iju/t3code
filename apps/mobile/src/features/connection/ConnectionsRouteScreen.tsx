@@ -73,6 +73,7 @@ export function ConnectionsRouteScreen() {
                   expanded={expandedId === environment.environmentId}
                   onToggle={() => handleToggle(environment.environmentId)}
                   onReconnect={onReconnectEnvironment}
+                  onPairAgain={() => navigation.navigate("ConnectionsNew")}
                   onRemove={onRemoveEnvironmentPress}
                   onUpdate={onUpdateEnvironment}
                 />

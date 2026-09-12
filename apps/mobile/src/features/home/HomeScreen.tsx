@@ -164,6 +164,14 @@ function deriveEmptyState(props: {
     };
   }
 
+  if (catalogState.refusedEnvironments.length > 0 && !catalogState.hasLoadedShellSnapshot) {
+    return {
+      title: "Environment no longer accepts this device",
+      detail: "Its access for this device was revoked. Pair again to reconnect.",
+      loading: false,
+    };
+  }
+
   if (
     (catalogState.connectionState === "available" ||
       catalogState.connectionState === "offline" ||
