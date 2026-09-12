@@ -77,6 +77,7 @@ it("formats issued sessions with the bearer token but omits tokens from listings
         issuedAt: DateTime.makeUnsafe("2026-04-08T09:00:00.000Z"),
         expiresAt: DateTime.makeUnsafe("2026-04-08T10:00:00.000Z"),
         lastConnectedAt: null,
+        lastSeenAt: DateTime.makeUnsafe("2026-04-01T09:30:00.000Z"),
       },
     ],
     { json: false },
@@ -84,4 +85,5 @@ it("formats issued sessions with the bearer token but omits tokens from listings
 
   expect(issuedOutput).toContain("secret-session-token");
   expect(listedOutput).not.toContain("secret-session-token");
+  expect(listedOutput).toContain("last seen: 2026-04-01T09:30:00.000Z");
 });

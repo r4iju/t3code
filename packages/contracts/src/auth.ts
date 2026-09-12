@@ -248,6 +248,8 @@ export const AuthClientSession = Schema.Struct({
   issuedAt: Schema.DateTimeUtc,
   expiresAt: Schema.DateTimeUtc,
   lastConnectedAt: Schema.NullOr(Schema.DateTimeUtc),
+  /** Last authenticated traffic from this client; null until it first connects. */
+  lastSeenAt: Schema.NullOr(Schema.DateTimeUtc),
   connected: Schema.Boolean,
   current: Schema.Boolean,
 });
