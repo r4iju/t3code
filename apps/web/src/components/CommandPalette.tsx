@@ -1,5 +1,8 @@
 "use client";
 
+import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
+import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
@@ -43,6 +46,7 @@ import {
   FileSearchIcon,
   FolderIcon,
   FolderPlusIcon,
+  GitPullRequestArrowIcon,
   LinkIcon,
   MessageSquareIcon,
   PaletteIcon,
@@ -82,7 +86,7 @@ import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
-import { useProjects, useThreadShells } from "../state/entities";
+import { useProjects, useServerConfigs, useThreadShells } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import {
@@ -125,9 +129,11 @@ import {
   ADDON_ICON_CLASS,
   browseInputEndPaddingClass,
   buildBrowseGroups,
+  buildCommandPaletteProjectMetadata,
   buildProjectActionItems,
   buildRootGroups,
   buildThreadActionItems,
+  buildLinkedThreadActionItems,
   enumerateCommandPaletteItems,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -150,6 +156,7 @@ import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "./Icons"
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
+import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -181,16 +188,39 @@ import type { Project } from "../types";
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
 function projectFavicon(project: Project) {
-  return (
-    <ProjectFavicon
-      environmentId={project.environmentId}
-      cwd={project.workspaceRoot}
-      projectName={project.title}
-      faviconPath={project.faviconPath}
-      projectIcon={project.projectIcon}
-      className="size-4"
-    />
-  );
+  return <ProjectFavicon project={project} className="size-4" />;
+}
+
+function ProjectSearchDescription(props: {
+  readonly environmentLabels: ReadonlyArray<string>;
+  readonly grouped: boolean;
+  readonly location: {
+    readonly kind: "local" | "remote";
+    readonly label: string;
+    readonly machine: EnvironmentMachineKind;
+  };
+  readonly workspaceRoot: string;
+}) {
+  if (!props.grouped) {
+    return (
+      <span className="flex min-w-0 items-center gap-1">
+        <span className="inline-flex min-w-0 items-center gap-1">
+          {props.location.kind === "remote" ? (
+            <EnvironmentMachineIcon
+              aria-hidden
+              kind={props.location.machine}
+              className={COMMAND_PALETTE_META_ICON_CLASS}
+            />
+          ) : null}
+          <span className="truncate">{props.location.label}</span>
+        </span>
+        <CommandPaletteMetaDot />
+        <span className="truncate">{props.workspaceRoot}</span>
+      </span>
+    );
+  }
+
+  return <span className="truncate">{props.environmentLabels.join(" · ")}</span>;
 }
 
 function getEnvironmentBrowsePlatform(os: string | null | undefined): string {
@@ -490,6 +520,12 @@ export function CommandPalette({ children }: { children: ReactNode }) {
           openNewThreadIn();
         } else if (detail.open === "add-project") {
           openAddProject();
+        } else if (detail.query !== undefined) {
+          dispatch({
+            _tag: "OpenSearch",
+            query: detail.query,
+            ...(detail.linkedThreads ? { linkedThreads: detail.linkedThreads } : {}),
+          });
         } else {
           setOpen(true);
         }
@@ -581,7 +617,10 @@ function OpenCommandPaletteDialog(props: {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
+  const [linkedThreadSearch, setLinkedThreadSearch] = useState(
+    openIntent?.kind === "search" ? openIntent : null,
+  );
   const deferredQuery = useDeferredValue(query);
   const isActionsOnly = deferredQuery.startsWith(">");
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
@@ -617,12 +656,16 @@ function OpenCommandPaletteDialog(props: {
         ? scopeThreadRef(activeThread.environmentId, activeThread.id)
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
+  const activeThreadServerConfig = useServerConfigs().get(
+    activeThread?.environmentId ?? ("" as EnvironmentId),
+  );
   const activeThreadReferenceCopyTarget =
     referenceThreadRef === null || (pathname === "/pull-requests" && !openPanelPullRequestUrl)
       ? null
       : resolveThreadReferenceCopyTarget({
           threadId: referenceThreadRef.threadId,
           openPanelPullRequestUrl,
+          pullRequests: activeThread?.pullRequests,
           linkedPullRequestUrl:
             activeThread?.linkedPullRequest?.url ?? activeThread?.branchPullRequest?.url ?? null,
         });
@@ -704,6 +747,7 @@ function OpenCommandPaletteDialog(props: {
   );
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
+  const cloneLookupGeneration = useRef(0);
   const [isRemoteProjectLookingUp, setIsRemoteProjectLookingUp] = useState(false);
   const [isRemoteProjectCloning, setIsRemoteProjectCloning] = useState(false);
   const projectGroupingSettings = useMemo(
@@ -801,7 +845,7 @@ function OpenCommandPaletteDialog(props: {
     () =>
       projectPickerEntries.map(({ group, targetProject }) => ({
         ...targetProject,
-        title: group.displayName,
+        displayName: group.displayName,
       })),
     [projectPickerEntries],
   );
@@ -934,18 +978,8 @@ function OpenCommandPaletteDialog(props: {
       new Map<ProjectId, string>(projects.map((project) => [project.id, project.workspaceRoot])),
     [projects],
   );
-  const projectFaviconPathById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project.faviconPath ?? null] as const)),
-    [projects],
-  );
-  const projectIconByKey = useMemo(
-    () =>
-      new Map(
-        projects.map(
-          (project) =>
-            [`${project.environmentId}:${project.id}`, project.projectIcon ?? null] as const,
-        ),
-      ),
+  const projectByKey = useMemo(
+    () => new Map(projects.map((project) => [`${project.environmentId}:${project.id}`, project])),
     [projects],
   );
   const projectTitleById = useMemo(
@@ -1086,15 +1120,43 @@ function OpenCommandPaletteDialog(props: {
         projects: pickerProjects,
         valuePrefix: "project",
         searchTerms: (project) => {
-          const group = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`);
+          const members = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`)
+            ?.memberProjects ?? [project];
+          return buildCommandPaletteProjectMetadata({
+            projects: members,
+            locationByEnvironmentId: projectEnvironmentLocationById,
+          }).searchTerms;
+        },
+        renderDescription: (project) => {
+          const members = projectGroupByTargetKey.get(`${project.environmentId}:${project.id}`)
+            ?.memberProjects ?? [project];
+          const metadata = buildCommandPaletteProjectMetadata({
+            projects: members,
+            locationByEnvironmentId: projectEnvironmentLocationById,
+          });
+          const location = projectEnvironmentLocationById.get(project.environmentId) ?? {
+            kind: "remote" as const,
+            label: "Remote",
+            machine: "server" as const,
+          };
           return (
-            group?.memberProjects.flatMap((member) => [member.title, member.workspaceRoot]) ?? []
+            <ProjectSearchDescription
+              environmentLabels={metadata.environmentLabels}
+              grouped={members.length > 1}
+              location={location}
+              workspaceRoot={project.workspaceRoot}
+            />
           );
         },
         icon: projectFavicon,
         runProject: openProjectFromSearch,
       }),
-    [openProjectFromSearch, pickerProjects, projectGroupByTargetKey],
+    [
+      openProjectFromSearch,
+      pickerProjects,
+      projectEnvironmentLocationById,
+      projectGroupByTargetKey,
+    ],
   );
 
   const projectThreadItems = useMemo(
@@ -1181,13 +1243,11 @@ function OpenCommandPaletteDialog(props: {
             ) ?? null;
           return (
             <ThreadCommandSubtitle
-              environmentId={thread.environmentId}
-              projectCwd={projectCwdById.get(thread.projectId) ?? null}
-              projectFaviconPath={projectFaviconPathById.get(thread.projectId) ?? null}
-              projectIcon={
-                projectIconByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null
-              }
+              project={projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ?? null}
               projectTitle={projectTitle ?? null}
+              environmentLabel={
+                projectEnvironmentLocationById.get(thread.environmentId)?.label ?? "Remote"
+              }
               branch={thread.branch}
               worktreePath={thread.worktreePath}
               isCurrent={thread.id === activeThreadId}
@@ -1224,9 +1284,8 @@ function OpenCommandPaletteDialog(props: {
       activeThreadId,
       clientSettings.sidebarThreadSortOrder,
       navigate,
-      projectCwdById,
-      projectFaviconPathById,
-      projectIconByKey,
+      projectByKey,
+      projectEnvironmentLocationById,
       projectTitleById,
       providerEntryByEnvironmentAndInstanceId,
       threadContentMatchByKey,
@@ -1523,6 +1582,18 @@ function OpenCommandPaletteDialog(props: {
   ]);
 
   useLayoutEffect(() => {
+    if (openIntent?.kind !== "search") return;
+    browseNavigation.invalidate();
+    cloneLookupGeneration.current += 1;
+    setIsRemoteProjectLookingUp(false);
+    setAddProjectCloneFlow(null);
+    setViewStack([]);
+    setLinkedThreadSearch(openIntent);
+    setQuery(openIntent.query);
+    clearOpenIntent();
+  }, [browseNavigation, clearOpenIntent, openIntent]);
+
+  useLayoutEffect(() => {
     if (openIntent?.kind !== "add-project") {
       return;
     }
@@ -1642,6 +1713,36 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
+  if (
+    activeThread !== null &&
+    threadPullRequestLinkMode(activeThreadServerConfig?.environment.capabilities) !== "unsupported"
+  ) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:link-pull-request",
+      searchTerms: ["link", "pull request", "pr", "attach", "stack"],
+      title: "Link pull request to thread",
+      icon: <GitPullRequestArrowIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openLinkPullRequestDialog(threadRef);
+      },
+    });
+    if (activeThreadServerConfig?.environment.capabilities.threadPullRequests === true) {
+      actionItems.push({
+        kind: "action",
+        value: "action:open-thread-pull-requests",
+        searchTerms: ["pull requests", "linked", "stack", "prs"],
+        title: "Show linked pull requests",
+        disabled: visibleThreadPullRequests(activeThread.pullRequests).length === 0,
+        icon: <GitPullRequestArrowIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          useRightPanelStore.getState().open(threadRef, "pull-requests");
+        },
+      });
+    }
+  }
+
   actionItems.push({
     kind: "action",
     value: "action:open-file-picker",
@@ -1740,8 +1841,7 @@ function OpenCommandPaletteDialog(props: {
     },
   });
 
-  // There is no projects listing page; the action targets the contextual
-  // project (active thread/draft, falling back to the first sidebar group).
+  // Target the active thread or draft's project, falling back to the first sidebar group.
   const contextualProjectGroup =
     (contextualProjectRef
       ? projectGroupByTargetKey.get(
@@ -1793,8 +1893,6 @@ function OpenCommandPaletteDialog(props: {
     run: async () => {
       await navigate({
         to: item.to,
-        search: (previous) =>
-          item.to === "/settings/projects" ? { ...previous, project: undefined } : previous,
         hash: item.targetId ?? item.id,
         replace: pathname === item.to,
         hashScrollIntoView: false,
@@ -1819,7 +1917,20 @@ function OpenCommandPaletteDialog(props: {
     isInSubmenu: currentView !== null,
     projectSearchItems: projectSearchItems,
     settingsSearchItems,
-    threadSearchItems: allThreadItems,
+    threadSearchItems:
+      linkedThreadSearch?.linkedThreads && deferredQuery === linkedThreadSearch.query
+        ? buildLinkedThreadActionItems({
+            ...linkedThreadSearch.linkedThreads,
+            query: linkedThreadSearch.query,
+            icon: <MessageSquareIcon className={ITEM_ICON_CLASS} />,
+            runThread: async (thread) => {
+              await navigate({
+                to: "/$environmentId/$threadId",
+                params: buildThreadRouteParams(scopeThreadRef(thread.environmentId, thread.id)),
+              });
+            },
+          })
+        : allThreadItems,
   });
 
   const handleAddProjectForEnvironment = useCallback(
@@ -2025,6 +2136,7 @@ function OpenCommandPaletteDialog(props: {
       }
 
       setIsRemoteProjectLookingUp(true);
+      const lookupGeneration = ++cloneLookupGeneration.current;
       const lookupResult = await lookupRepository({
         environmentId: addProjectCloneFlow.environmentId,
         input: {
@@ -2032,6 +2144,7 @@ function OpenCommandPaletteDialog(props: {
           repository: rawRepository,
         },
       });
+      if (lookupGeneration !== cloneLookupGeneration.current) return;
       setIsRemoteProjectLookingUp(false);
       if (lookupResult._tag === "Failure") {
         if (!isAtomCommandInterrupted(lookupResult)) {

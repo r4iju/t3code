@@ -40,6 +40,8 @@ export interface ServerDerivedPaths {
   readonly attachmentsDir: string;
   /** Read-aloud audio cache; files are named by content hash and trimmed by mtime. */
   readonly speechDir: string;
+  /** Screenshots the agent asks the collaborative browser to keep for the user. */
+  readonly browserArtifactsDir: string;
   readonly logsDir: string;
   readonly serverLogPath: string;
   readonly serverTracePath: string;
@@ -128,6 +130,7 @@ export const deriveServerPaths = Effect.fn(function* (
     worktreesDir: join(baseDir, "worktrees"),
     attachmentsDir,
     speechDir: join(stateDir, "speech"),
+    browserArtifactsDir: join(stateDir, "browser-artifacts"),
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
     serverTracePath: join(logsDir, "server.trace.ndjson"),
