@@ -137,6 +137,29 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
     }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web", host: "192.168.1.50" }))),
   );
 
+  it.effect("records last seen only once a request clears every credential check", () =>
+    Effect.gen(function* () {
+      const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
+      const sessions = yield* SessionStore.SessionStore;
+      const bound = yield* sessions.issue({
+        subject: "relay-user",
+        method: "dpop-access-token",
+        proofKeyThumbprint: "relay-proof-key",
+      });
+      const plain = yield* sessions.issue({ subject: "lan-user", method: "bearer-access-token" });
+
+      const rejected = yield* Effect.flip(
+        serverAuth.authenticateHttpRequest(makeBearerRequest(bound.token)),
+      );
+      expect(rejected._tag).toBe("ServerAuthInvalidCredentialError");
+      yield* serverAuth.authenticateHttpRequest(makeBearerRequest(plain.token));
+
+      const active = yield* sessions.listActive();
+      expect(active.find((s) => s.sessionId === bound.sessionId)?.lastSeenAt).toBeNull();
+      expect(active.find((s) => s.sessionId === plain.sessionId)?.lastSeenAt).not.toBeNull();
+    }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web", host: "192.168.1.50" }))),
+  );
+
   it.effect("does not exchange ordinary pairing grants for administrative access tokens", () =>
     Effect.gen(function* () {
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;

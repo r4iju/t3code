@@ -456,24 +456,24 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
   );
 
-  it.effect("coalesces last-seen writes from verified requests to one per hour", () =>
+  it.effect("coalesces last-seen writes from authenticated requests to one per hour", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;
       const issued = yield* sessions.issue({ subject: "seen-http", method: "bearer-access-token" });
 
       yield* TestClock.adjust(Duration.minutes(1));
-      yield* sessions.verify(issued.token);
+      yield* sessions.recordSeen(issued.sessionId);
       const first = (yield* sessions.listActive())[0]?.lastSeenAt;
       expect(first?.epochMilliseconds).toBe(Duration.toMillis(Duration.minutes(1)));
 
       yield* TestClock.adjust(Duration.minutes(30));
-      yield* sessions.verify(issued.token);
+      yield* sessions.recordSeen(issued.sessionId);
       expect((yield* sessions.listActive())[0]?.lastSeenAt?.epochMilliseconds).toBe(
         first?.epochMilliseconds,
       );
 
       yield* TestClock.adjust(Duration.minutes(31));
-      yield* sessions.verify(issued.token);
+      yield* sessions.recordSeen(issued.sessionId);
       expect((yield* sessions.listActive())[0]?.lastSeenAt?.epochMilliseconds).toBe(
         Duration.toMillis(Duration.minutes(62)),
       );
@@ -496,8 +496,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
 
       yield* TestClock.adjust(Duration.hours(2));
       yield* sessions.markDisconnected(issued.sessionId);
-      const verified = yield* Effect.result(sessions.verify(issued.token));
-      expect(verified._tag).toBe("Failure");
+      yield* sessions.recordSeen(issued.sessionId);
 
       const row = yield* repository.getById({ sessionId: issued.sessionId });
       expect(Option.getOrThrow(row).lastSeenAt?.epochMilliseconds).toBe(
@@ -520,7 +519,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       yield* Effect.yieldNow;
 
       yield* TestClock.adjust(Duration.minutes(1));
-      yield* sessions.verify(issued.token);
+      yield* sessions.recordSeen(issued.sessionId);
       const change = yield* Queue.take(changes);
       expect(change.type).toBe("clientUpserted");
       if (change.type === "clientUpserted") {
@@ -530,7 +529,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       }
 
       yield* TestClock.adjust(Duration.minutes(1));
-      yield* sessions.verify(issued.token);
+      yield* sessions.recordSeen(issued.sessionId);
       expect(yield* Queue.size(changes)).toBe(0);
       yield* Fiber.interrupt(streamFiber);
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),

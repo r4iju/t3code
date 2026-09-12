@@ -670,6 +670,7 @@ export const make = Effect.gen(function* () {
         }
         return Effect.succeed(session);
       }),
+      Effect.tap((session) => sessions.recordSeen(session.sessionId)),
     );
   };
 

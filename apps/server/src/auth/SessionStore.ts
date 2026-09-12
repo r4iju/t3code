@@ -405,6 +405,12 @@ export class SessionStore extends Context.Service<
     ) => Effect.Effect<number, SessionCredentialInternalError>;
     readonly markConnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly markDisconnected: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
+    /**
+     * Record that a fully authenticated request just used this session. Callers
+     * run this after every check that can still reject the request, so a bad
+     * DPoP proof never counts as the client being seen.
+     */
+    readonly recordSeen: (sessionId: AuthSessionId) => Effect.Effect<void, never>;
     readonly recordClientConnection: (
       sessionId: AuthSessionId,
       client: {
@@ -555,7 +561,7 @@ export const make = Effect.gen(function* () {
       );
 
   // Best-effort: seeing a client must never fail the request that proved it.
-  const touchLastSeen = (sessionId: AuthSessionId) =>
+  const recordSeen: SessionStore["Service"]["recordSeen"] = (sessionId) =>
     Effect.gen(function* () {
       const now = yield* DateTime.now;
       const lastWrite = (yield* Ref.get(lastSeenWritesRef)).get(sessionId);
@@ -576,7 +582,7 @@ export const make = Effect.gen(function* () {
           Effect.annotateLogs({ sessionId, cause }),
         ),
       ),
-      Effect.withSpan("SessionStore.touchLastSeen"),
+      Effect.withSpan("SessionStore.recordSeen"),
     );
 
   const markConnected: SessionStore["Service"]["markConnected"] = (sessionId) =>
@@ -814,8 +820,6 @@ export const make = Effect.gen(function* () {
           revokedAt: row.value.revokedAt,
         });
       }
-
-      yield* touchLastSeen(claims.sid);
 
       return {
         sessionId: claims.sid,
@@ -1059,6 +1063,7 @@ export const make = Effect.gen(function* () {
     revokeAllExcept,
     markConnected,
     markDisconnected,
+    recordSeen,
     recordClientConnection,
   });
 });
