@@ -292,7 +292,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Read aloud",
     to: "/settings/general",
     searchTerms: ["speech voice tts text to speech audio speak listen openai kokoro local server"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-base-url",
@@ -300,7 +301,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["endpoint api openai compatible local server"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-api-key",
@@ -308,7 +310,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["secret token credentials"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-model",
@@ -316,7 +319,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["tts kokoro"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-voice",
@@ -324,7 +328,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["alloy nova bella"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-max-chars",
@@ -332,7 +337,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["chunk limit length long responses"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "new-threads",
