@@ -3,6 +3,7 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -578,5 +579,36 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       yield* sessions.recordClientConnection(issued.sessionId, {});
       expect((yield* readRow)[0]).toEqual({ surface: "mobile", appVersion: "1.3.0" });
     }).pipe(Effect.provide(Layer.mergeAll(makeSessionStoreLayer(), SqlitePersistenceMemory))),
+  );
+
+  it.effect("awaitRemoval settles only when its own session is revoked", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const watched = yield* sessions.issue({ subject: "watched", method: "bearer-access-token" });
+      const other = yield* sessions.issue({ subject: "other", method: "bearer-access-token" });
+
+      const removal = yield* Effect.forkChild(sessions.awaitRemoval(watched.sessionId), {
+        startImmediately: true,
+      });
+      // Revoking an unrelated session must not release the watcher.
+      yield* sessions.revoke(other.sessionId);
+      yield* Effect.yieldNow;
+      expect(removal.pollUnsafe()).toBeUndefined();
+
+      yield* sessions.revoke(watched.sessionId);
+      yield* Fiber.join(removal);
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
+  );
+
+  it.effect("awaitRemoval settles immediately for a session revoked before it subscribed", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const issued = yield* sessions.issue({ subject: "stale", method: "bearer-access-token" });
+      yield* sessions.revoke(issued.sessionId);
+
+      // Subscribing after the revocation event was published cannot rely on the
+      // stream; the stored revocation has to be enough.
+      yield* sessions.awaitRemoval(issued.sessionId);
+    }).pipe(Effect.provide(makeSessionStoreLayer())),
   );
 });

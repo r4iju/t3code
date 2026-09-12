@@ -122,6 +122,8 @@ function makeHarness(reply: (requestNumber: number) => Response | Promise<Respon
   const remoteAuthorization = RemoteEnvironmentAuthorization.of({
     authorizeBearer: () => Effect.die("Unexpected bearer connection preparation."),
     authorizeDpop: () => Effect.die("HTTP requests must not prepare a WebSocket connection."),
+    authorizeCookieSession: () =>
+      Effect.die("HTTP requests must not prepare a WebSocket connection."),
     authorizeDpopHttp: (input) =>
       Effect.sync(() => {
         authorizations.push(input);

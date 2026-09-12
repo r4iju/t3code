@@ -146,7 +146,8 @@ For Antigravity's Google callback on a remote host, see
 
 On the host, **Settings → Connections** lets authorized administrators create
 pairing links and revoke client sessions. Revoking an unused link prevents new
-pairings; revoke a device's session to remove its existing access. Command-line
+pairings; revoke a device's session to remove its existing access. A revoked
+device is disconnected immediately and must pair again to reconnect. Command-line
 management is available through `npx t3 auth --help`.
 
 A session with an open connection stays listed after its access credential

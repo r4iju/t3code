@@ -72,6 +72,10 @@ export class RemoteEnvironmentAuthorization extends Context.Service<
     readonly authorizeDpop: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
     }) => Effect.Effect<AuthorizedRemoteEnvironment, ConnectionAttemptError>;
+    readonly authorizeCookieSession: (input: {
+      readonly httpBaseUrl: string;
+      readonly wsBaseUrl: string;
+    }) => Effect.Effect<{ readonly socketUrl: string }, ConnectionAttemptError>;
     readonly authorizeDpopHttp: (input: {
       readonly expectedEnvironmentId: EnvironmentId;
       readonly rejectedAccessToken?: string;
@@ -191,6 +195,24 @@ export const make = Effect.gen(function* () {
       };
     },
   );
+
+  // A browser cannot tell a refused socket upgrade from a dropped network, so
+  // the cookie session mints a ticket first: a revoked session then blocks the
+  // connection instead of retrying forever.
+  const authorizeCookieSession = Effect.fn(
+    "clientRuntime.connection.remote.authorizeCookieSession",
+  )(function* (input: { readonly httpBaseUrl: string; readonly wsBaseUrl: string }) {
+    const socketUrl = yield* resolveRemoteWebSocketConnectionUrl({
+      wsBaseUrl: input.wsBaseUrl,
+      httpBaseUrl: input.httpBaseUrl,
+      clientMetadata: presentation.metadata,
+      connectionMethod: "direct",
+    }).pipe(
+      Effect.mapError(mapRemoteEnvironmentError),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+    return { socketUrl };
+  });
 
   const createDpopSocketUrl = Effect.fn("clientRuntime.connection.remote.createDpopSocketUrl")(
     function* (token: TokenStore.RemoteDpopAccessToken, timeoutMs?: number) {
@@ -494,6 +516,7 @@ export const make = Effect.gen(function* () {
 
   return RemoteEnvironmentAuthorization.of({
     authorizeBearer,
+    authorizeCookieSession,
     authorizeDpop: (input) =>
       authorizeDpop(input).pipe(Effect.withSpan("environment.authorization")),
     authorizeDpopHttp: (input) =>

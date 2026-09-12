@@ -30,7 +30,7 @@ function presentation(
 ): EnvironmentPresentation {
   return {
     entry: { target: target(environmentId, endpoint), profile: Option.none() },
-    connection: { phase: "connected", error: null, traceId: null },
+    connection: { phase: "connected", error: null, traceId: null, blockedReason: null },
     serverConfig,
   };
 }

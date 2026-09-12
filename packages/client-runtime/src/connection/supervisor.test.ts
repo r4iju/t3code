@@ -755,6 +755,31 @@ describe("EnvironmentSupervisor", () => {
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
+  it.effect("settles in blocked when the reconnect after a server hang-up is refused", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        prepare: (attempt) =>
+          attempt === 1 ? Effect.succeed(PREPARED_CONNECTION) : Effect.fail(blocked()),
+      });
+      const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
+        initiallyDesired: true,
+      }).pipe(Effect.provide(harness.dependencies));
+
+      yield* awaitState(supervisor.state, (state) => state.phase === "connected");
+      yield* harness.closeLatestSession();
+      yield* awaitState(supervisor.state, (state) => state.phase === "backoff");
+      yield* TestClock.adjust("3 seconds");
+      yield* awaitState(supervisor.state, (state) => state.phase === "blocked");
+
+      // No further attempts while blocked: it is not a network outage.
+      yield* TestClock.adjust("1 hour");
+      expect(yield* Ref.get(harness.prepareCount)).toBe(2);
+      const state = yield* SubscriptionRef.get(supervisor.state);
+      expect(state.lastFailure?._tag).toBe("ConnectionBlockedError");
+      expect(state.desired).toBe(true);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
+
   it.effect("keeps escalating backoff when a newly opened session flaps", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

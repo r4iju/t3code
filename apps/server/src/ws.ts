@@ -76,7 +76,12 @@ import {
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
-import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/unstable/http";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerRespondable,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
@@ -3018,7 +3023,12 @@ export const websocketRpcRouteLayer = Layer.unwrap(
         );
         return yield* Effect.acquireUseRelease(
           sessions.markConnected(session.sessionId),
-          () => rpcWebSocketHttpEffect,
+          () =>
+            // Losing the race interrupts the handler, which closes the socket.
+            Effect.raceFirst(
+              rpcWebSocketHttpEffect,
+              sessions.awaitRemoval(session.sessionId).pipe(Effect.as(HttpServerResponse.empty())),
+            ),
           () => sessions.markDisconnected(session.sessionId),
         );
       }).pipe(

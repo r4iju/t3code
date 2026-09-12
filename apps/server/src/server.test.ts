@@ -4104,6 +4104,23 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("issues websocket tickets for cookie sessions so the web primary can reconnect", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const cookie = yield* getAuthenticatedSessionCookieHeader();
+      const wsTicketUrl = yield* getHttpServerUrl("/api/auth/websocket-ticket");
+      const wsTicketResponse = yield* fetchEffect(wsTicketUrl, {
+        method: "POST",
+        headers: { cookie },
+      });
+      const wsTicketBody = yield* responseJsonEffect<{ readonly ticket: string }>(wsTicketResponse);
+
+      assert.equal(wsTicketResponse.status, 200);
+      assert.isTrue(wsTicketBody.ticket.length > 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("does not allow management-only access tokens to operate the environment", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();
@@ -4730,6 +4747,87 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(pairedClientPairingBody.reason, "invalid_credential");
       assert.equal(typeof pairedClientPairingBody.traceId, "string");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("closes a revoked client's open socket and rejects its reconnect", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingResponse = yield* HttpClient.post("/api/auth/pairing-token", {
+        headers: { cookie: ownerCookie },
+        body: yield* HttpBody.json({ label: "Paired laptop" }),
+      });
+      assert.equal(pairingResponse.status, 200);
+      const pairingBody = (yield* pairingResponse.json) as { readonly credential: string };
+      const { body: pairedExchange } = yield* exchangeAccessToken(pairingBody.credential, {
+        scope: "orchestration:read orchestration:operate",
+      });
+      const pairedBearer = pairedExchange.access_token ?? "";
+      assert.isNotEmpty(pairedBearer);
+
+      const issueTicket = () =>
+        HttpClient.post("/api/auth/websocket-ticket", {
+          headers: { authorization: `Bearer ${pairedBearer}` },
+        });
+      const ticketResponse = yield* issueTicket();
+      assert.equal(ticketResponse.status, 200);
+      const { ticket } = (yield* ticketResponse.json) as { readonly ticket: string };
+
+      const wsUrl = new URL(yield* getWsServerUrl("/ws", { authenticated: false }));
+      wsUrl.searchParams.set("wsTicket", ticket);
+      const closed = yield* Deferred.make<{ readonly code: number }>();
+      const socket = yield* Effect.acquireRelease(
+        Effect.callback<NodeSocket.NodeWS.WebSocket, Error>((resume) => {
+          const ws = new NodeSocket.NodeWS.WebSocket(wsUrl.toString());
+          ws.on("open", () => resume(Effect.succeed(ws)));
+          ws.on("error", (error) => resume(Effect.fail(error)));
+          ws.on("close", (code) => Deferred.doneUnsafe(closed, Effect.succeed({ code })));
+        }),
+        (ws) => Effect.sync(() => ws.close()),
+      );
+      assert.equal(socket.readyState, NodeSocket.NodeWS.WebSocket.OPEN);
+
+      const clientsResponse = yield* HttpClient.get("/api/auth/clients", {
+        headers: { cookie: ownerCookie },
+      });
+      const clients = (yield* clientsResponse.json) as ReadonlyArray<{
+        readonly sessionId: string;
+        readonly current: boolean;
+        readonly connected: boolean;
+      }>;
+      const paired = clients.find((entry) => !entry.current);
+      assert.isDefined(paired);
+      assert.equal(paired?.connected, true);
+
+      const revokeResponse = yield* HttpClient.post("/api/auth/clients/revoke", {
+        headers: { cookie: ownerCookie },
+        body: yield* HttpBody.json({ sessionId: paired?.sessionId }),
+      });
+      assert.equal(revokeResponse.status, 200);
+
+      // The server hangs up on the revoked session instead of letting the
+      // already-open socket keep serving RPCs until the client goes away.
+      const closeEvent = yield* Deferred.await(closed);
+      assert.isNumber(closeEvent.code);
+
+      const reconnectTicketResponse = yield* issueTicket();
+      assert.equal(reconnectTicketResponse.status, 401);
+
+      // Pairing again is the way back in.
+      const repairResponse = yield* HttpClient.post("/api/auth/pairing-token", {
+        headers: { cookie: ownerCookie },
+        body: yield* HttpBody.json({ label: "Paired laptop" }),
+      });
+      const repairBody = (yield* repairResponse.json) as { readonly credential: string };
+      const { body: repairedExchange } = yield* exchangeAccessToken(repairBody.credential, {
+        scope: "orchestration:read orchestration:operate",
+      });
+      const repairedTicketResponse = yield* HttpClient.post("/api/auth/websocket-ticket", {
+        headers: { authorization: `Bearer ${repairedExchange.access_token ?? ""}` },
+      });
+      assert.equal(repairedTicketResponse.status, 200);
+    }).pipe(Effect.scoped, Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("separates access inventory reads from credential management writes", () =>
