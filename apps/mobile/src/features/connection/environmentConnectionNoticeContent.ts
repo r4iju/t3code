@@ -61,7 +61,7 @@ export function environmentConnectionNoticeContent(input: {
   readonly connection: EnvironmentConnectionPresentation;
 }): EnvironmentConnectionNoticeContent {
   const { connection } = input;
-  if (connection.blockedReason === "authentication") {
+  if (connection.blockedReason === "pairing") {
     return {
       title: `${input.environmentLabel} no longer accepts this device`,
       detail: `Pair again to load the ${input.resourceName}.`,

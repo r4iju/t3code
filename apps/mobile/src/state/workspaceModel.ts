@@ -92,7 +92,7 @@ export function projectWorkspaceState(input: {
   );
 
   const refusedEnvironments = input.environments.filter(
-    (environment) => environment.connectionBlockedReason === "authentication",
+    (environment) => environment.connectionBlockedReason === "pairing",
   );
 
   return {

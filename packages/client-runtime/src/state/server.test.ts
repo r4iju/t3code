@@ -223,17 +223,18 @@ describe("update restart reconnect nudges", () => {
           {
             phase: "blocked",
             lastFailure: {
-              reason: "authentication",
+              reason: "pairing",
               detail: "The environment credential is invalid.",
             },
           },
+          { phase: "blocked", lastFailure: { reason: "authentication" } },
           { phase: "blocked", lastFailure: { reason: "configuration" } },
         ]),
         retryNow: Ref.update(retries, (count) => count + 1),
         interval: Duration.zero,
       });
 
-      expect(yield* Ref.get(retries)).toBe(1);
+      expect(yield* Ref.get(retries)).toBe(2);
     }),
   );
 });

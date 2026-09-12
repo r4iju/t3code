@@ -104,6 +104,23 @@ describe("mapRemoteDpopEnvironmentError", () => {
     });
   });
 
+  it("refuses a direct pairing as re-pairable but a relay credential as authentication", () => {
+    const refused = new EnvironmentAuthInvalidError({
+      code: "auth_invalid",
+      reason: "invalid_credential",
+      traceId: "trace-1",
+    });
+
+    expect(mapRemoteEnvironmentError(refused, "direct")).toMatchObject({
+      _tag: "ConnectionBlockedError",
+      reason: "pairing",
+    });
+    expect(mapRemoteEnvironmentError(refused, "relay")).toMatchObject({
+      _tag: "ConnectionBlockedError",
+      reason: "authentication",
+    });
+  });
+
   it("does not present a generic environment auth error as confirmed clock skew", () => {
     const mapped = mapRemoteDpopEnvironmentError(
       new EnvironmentAuthInvalidError({

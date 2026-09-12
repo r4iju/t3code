@@ -46,7 +46,7 @@ export function ConnectionEnvironmentRow(props: {
   const statusLabel = connectionStatusLabel(props.environment);
   const statusTraceId = props.environment.connectionErrorTraceId;
   const hasConnectionFailure = props.environment.connectionError !== null;
-  const needsPairing = props.environment.connectionBlockedReason === "authentication";
+  const needsPairing = props.environment.connectionBlockedReason === "pairing";
   const isRetrying =
     props.environment.connectionState === "connecting" ||
     props.environment.connectionState === "reconnecting";

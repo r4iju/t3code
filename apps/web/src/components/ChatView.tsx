@@ -2462,7 +2462,7 @@ export default function ChatView(props: ChatViewProps) {
           title: `${unavailableConnection.phase === "connecting" ? "Connecting" : "Reconnecting"} to ${activeEnvironmentUnavailableState.label}`,
           description: "Finishing an update",
         });
-      } else if (unavailableConnection.blockedReason === "authentication") {
+      } else if (unavailableConnection.blockedReason === "pairing") {
         // The environment refused this device's credential, so retrying is
         // pointless; the only way back is pairing again.
         const isPrimary = activeEnvironmentUnavailableState.environmentId === primaryEnvironmentId;

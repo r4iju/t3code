@@ -19,7 +19,7 @@ export function profileMissingError(connectionId: string): ConnectionBlockedErro
 
 export function credentialMissingError(connectionId: string): ConnectionBlockedError {
   return new ConnectionBlockedError({
-    reason: "authentication",
+    reason: "pairing",
     detail: `Connection credential ${connectionId} is unavailable.`,
   });
 }
@@ -120,7 +120,7 @@ export function mapRemoteEnvironmentError(
   switch (error._tag) {
     case "EnvironmentAuthInvalidError":
       return new ConnectionBlockedError({
-        reason: "authentication",
+        reason: connectionMethod === "relay" ? "authentication" : "pairing",
         detail: "The environment credential is invalid.",
         traceId: error.traceId,
       });

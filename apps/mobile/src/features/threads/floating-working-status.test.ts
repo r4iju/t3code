@@ -73,7 +73,7 @@ describe("connectionFloatingStatus", () => {
     const onPairAgain = vi.fn();
     const pill = connectionFloatingStatus({
       connectionError: "The environment credential is invalid.",
-      connectionBlockedReason: "authentication",
+      connectionBlockedReason: "pairing",
       connectionState: "error",
       environmentLabel: "Mac mini",
       onReconnect,

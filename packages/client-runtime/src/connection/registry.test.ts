@@ -830,7 +830,7 @@ describe("EnvironmentRegistry", () => {
             Effect.gen(function* () {
               if (yield* Ref.get(refused)) {
                 return yield* new ConnectionBlockedError({
-                  reason: "authentication",
+                  reason: "pairing",
                   detail: "The environment credential is invalid.",
                 });
               }

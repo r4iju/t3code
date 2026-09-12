@@ -1108,7 +1108,13 @@ export function HomeScreen(props: HomeScreenProps) {
             <EmptyState
               title={emptyState.title}
               detail={emptyState.detail}
-              actionLabel={!props.catalogState.hasReadyEnvironment ? "Add environment" : undefined}
+              actionLabel={
+                !props.catalogState.hasReadyEnvironment
+                  ? props.catalogState.refusedEnvironments.length > 0
+                    ? "Pair again"
+                    : "Add environment"
+                  : undefined
+              }
               onAction={!props.catalogState.hasReadyEnvironment ? props.onAddConnection : undefined}
               variant="plain"
             />

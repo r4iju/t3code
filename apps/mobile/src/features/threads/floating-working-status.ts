@@ -43,7 +43,7 @@ export function connectionFloatingStatus(input: {
     onPress: input.onReconnect,
   });
 
-  if (input.connectionBlockedReason === "authentication") {
+  if (input.connectionBlockedReason === "pairing") {
     return {
       kind: "connection",
       tone: "unavailable",

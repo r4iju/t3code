@@ -73,7 +73,7 @@ describe("workspace connection status", () => {
           connectionState: "error",
           connectionError: "The environment credential is invalid.",
           connectionErrorTraceId: null,
-          connectionBlockedReason: "authentication",
+          connectionBlockedReason: "pairing",
         },
       ],
     });

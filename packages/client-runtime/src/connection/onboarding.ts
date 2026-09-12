@@ -172,7 +172,7 @@ export const prepareBearerConnectionUpdate = Effect.fn(
   const credential = options.credential;
   if (Option.isNone(credential) || !isBearerCredential(credential.value)) {
     return yield* new ConnectionBlockedError({
-      reason: "authentication",
+      reason: "pairing",
       detail: "The saved bearer credential is unavailable.",
     });
   }

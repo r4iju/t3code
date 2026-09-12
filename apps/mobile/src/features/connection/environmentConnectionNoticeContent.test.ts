@@ -12,7 +12,7 @@ describe("environmentConnectionNoticeContent", () => {
           phase: "error",
           error: "The environment credential is invalid.",
           traceId: null,
-          blockedReason: "authentication",
+          blockedReason: "pairing",
         },
       }),
     ).toEqual({

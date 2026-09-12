@@ -205,7 +205,9 @@ export function nudgeReconnectDuringUpdateRestart(input: {
     Stream.filter(
       (state) =>
         state.phase === "backoff" ||
-        (state.phase === "blocked" && state.lastFailure?.reason === "authentication"),
+        (state.phase === "blocked" &&
+          (state.lastFailure?.reason === "pairing" ||
+            state.lastFailure?.reason === "authentication")),
     ),
     Stream.runForEach(() =>
       Effect.sleep(input.interval ?? Duration.seconds(1)).pipe(Effect.andThen(input.retryNow)),

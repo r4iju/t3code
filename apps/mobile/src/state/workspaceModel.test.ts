@@ -115,7 +115,7 @@ describe("mobile workspace projection", () => {
         connection: {
           ...refused.connection,
           error: "The environment credential is invalid.",
-          blockedReason: "authentication",
+          blockedReason: "pairing",
         },
       }),
     ];

@@ -62,7 +62,7 @@ export function presentConnectionState(
 }
 
 export function connectionStatusText(connection: EnvironmentConnectionPresentation): string {
-  if (connection.blockedReason === "authentication") {
+  if (connection.blockedReason === "pairing") {
     return "No longer accepts this device. Pair again to reconnect.";
   }
   switch (connection.phase) {
@@ -86,7 +86,7 @@ export function connectionStatusText(connection: EnvironmentConnectionPresentati
 }
 
 export function connectionStatusTitle(connection: EnvironmentConnectionPresentation): string {
-  if (connection.blockedReason === "authentication") {
+  if (connection.blockedReason === "pairing") {
     return "No longer accepts this device";
   }
   if (connection.phase === "reconnecting" && connection.error) {

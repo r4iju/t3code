@@ -141,7 +141,7 @@ describe("connection presentation", () => {
       phase: "error",
       error: "The environment credential is invalid.",
       traceId: null,
-      blockedReason: "authentication",
+      blockedReason: "pairing",
     } as const;
     expect(connectionStatusText(connection)).toBe(
       "No longer accepts this device. Pair again to reconnect.",
