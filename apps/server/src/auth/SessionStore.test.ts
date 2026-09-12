@@ -480,6 +480,32 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
     }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
   );
 
+  it.effect("never advances last seen on a revoked session", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const repository = yield* AuthSessions.AuthSessionRepository;
+      const issued = yield* sessions.issue({
+        subject: "seen-revoked",
+        method: "bearer-access-token",
+      });
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      yield* sessions.markConnected(issued.sessionId);
+      yield* TestClock.adjust(Duration.minutes(1));
+      expect(yield* sessions.revoke(issued.sessionId)).toBe(true);
+
+      yield* TestClock.adjust(Duration.hours(2));
+      yield* sessions.markDisconnected(issued.sessionId);
+      const verified = yield* Effect.result(sessions.verify(issued.token));
+      expect(verified._tag).toBe("Failure");
+
+      const row = yield* repository.getById({ sessionId: issued.sessionId });
+      expect(Option.getOrThrow(row).lastSeenAt?.epochMilliseconds).toBe(
+        Duration.toMillis(Duration.minutes(1)),
+      );
+    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+  );
+
   it.effect("publishes a client update when last seen advances", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;

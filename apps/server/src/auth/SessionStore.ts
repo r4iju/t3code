@@ -505,10 +505,14 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.asVoid);
 
   const emitRemoved = (sessionId: AuthSessionId) =>
-    PubSub.publish(changesPubSub, {
-      type: "clientRemoved",
-      sessionId,
-    }).pipe(Effect.asVoid);
+    Ref.update(lastSeenWritesRef, (current) => {
+      const next = new Map(current);
+      next.delete(sessionId);
+      return next;
+    }).pipe(
+      Effect.andThen(PubSub.publish(changesPubSub, { type: "clientRemoved", sessionId })),
+      Effect.asVoid,
+    );
 
   const loadActiveSession = (sessionId: AuthSessionId) =>
     Effect.gen(function* () {
