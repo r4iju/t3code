@@ -39,6 +39,9 @@ export const synthesizeSpeechChunk = Effect.fn("OpenAiSpeechClient.synthesizeSpe
         input,
         voice: settings.voice,
         response_format: "mp3",
+        // Kokoro speaks a `[voice:…]` marker out loud unless the request opts
+        // in. No other endpoint ever sees the field.
+        ...(settings.dialect === "kokoro" ? { allow_voice_tags: true } : {}),
       }),
       settings.apiKey.length > 0
         ? HttpClientRequest.setHeader("Authorization", `Bearer ${settings.apiKey}`)

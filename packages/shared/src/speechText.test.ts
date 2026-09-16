@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { prepareSpeechText, SPEECH_TABLE_OMITTED_NOTE, splitSpeechText } from "./speechText.ts";
+import {
+  normalizeSpokenText,
+  planSpeechSegments,
+  prepareSpeechBlocks,
+  prepareSpeechText,
+  renderSpeechText,
+  SPEECH_FIRST_SEGMENT_CHARS,
+  splitSpeechSegments,
+} from "./speechText.ts";
 
 describe("prepareSpeechText", () => {
   it("drops fenced code blocks and keeps the surrounding prose", () => {
@@ -16,7 +24,7 @@ describe("prepareSpeechText", () => {
     expect(prepareSpeechText(markdown)).toBe("Here is the fix.\n\nRun it again.");
   });
 
-  it("replaces a table with the spoken note once", () => {
+  it("reads a two-column table as pairs", () => {
     const markdown = [
       "Results:",
       "",
@@ -27,7 +35,46 @@ describe("prepareSpeechText", () => {
       "",
       "Done.",
     ].join("\n");
-    expect(prepareSpeechText(markdown)).toBe(`Results:\n\n${SPEECH_TABLE_OMITTED_NOTE}\n\nDone.`);
+    expect(prepareSpeechText(markdown)).toBe(
+      "Results:\n\nTable. Columns: name, value.\n\na: 1.\n\nb: 2.\n\nDone.",
+    );
+  });
+
+  it("keeps the column with each cell once a table is wider than a pair", () => {
+    const markdown = [
+      "| file | change | lines |",
+      "| --- | --- | --- |",
+      "| `readAloud.ts` | rewritten | 40 |",
+    ].join("\n");
+    expect(prepareSpeechText(markdown)).toBe(
+      "Table. Columns: file, change, lines.\n\nreadAloud.ts. change: rewritten. lines: 40.",
+    );
+  });
+
+  it("announces the shape of a table too long to read", () => {
+    const rows = Array.from({ length: 8 }, (_, index) => `| row ${index} | ${index} |`);
+    const markdown = ["| name | value |", "| --- | --- |", ...rows].join("\n");
+    expect(prepareSpeechText(markdown)).toBe("Table with 8 rows. Columns: name, value.");
+  });
+
+  it("announces the shape of a table too wide to read", () => {
+    const markdown = [
+      "| a | b | c | d | e |",
+      "| --- | --- | --- | --- | --- |",
+      "| 1 | 2 | 3 | 4 | 5 |",
+    ].join("\n");
+    expect(prepareSpeechText(markdown)).toBe("Table with 1 row. Columns: a, b, c, d, e.");
+  });
+
+  it("keeps the table's Markdown on the block so it can be summarized later", () => {
+    const markdown = ["| step | result |", "| --- | --- |", "| before | flat |"].join("\n");
+    expect(prepareSpeechBlocks(markdown)).toEqual([
+      {
+        kind: "table",
+        text: "Table. Columns: step, result.\n\nbefore: flat.",
+        source: markdown,
+      },
+    ]);
   });
 
   it("keeps inline code and link labels as plain words", () => {
@@ -102,16 +149,16 @@ describe("prepareSpeechText", () => {
   });
 });
 
-describe("splitSpeechText", () => {
-  it("keeps short text as a single chunk", () => {
-    expect(splitSpeechText("Hello there.\n\nSecond paragraph.", 100)).toEqual([
+describe("splitSpeechSegments", () => {
+  it("keeps short text as a single segment", () => {
+    expect(splitSpeechSegments("Hello there.\n\nSecond paragraph.", 100)).toEqual([
       "Hello there.\n\nSecond paragraph.",
     ]);
   });
 
-  it("splits on paragraph boundaries first", () => {
+  it("keeps paragraph breaks inside a segment", () => {
     const text = "Alpha paragraph.\n\nBeta paragraph.\n\nGamma paragraph.";
-    expect(splitSpeechText(text, 36)).toEqual([
+    expect(splitSpeechSegments(text, 36)).toEqual([
       "Alpha paragraph.\n\nBeta paragraph.",
       "Gamma paragraph.",
     ]);
@@ -119,7 +166,7 @@ describe("splitSpeechText", () => {
 
   it("splits a long paragraph on sentence boundaries", () => {
     const text = "First sentence here. Second sentence here! Third one?";
-    expect(splitSpeechText(text, 45)).toEqual([
+    expect(splitSpeechSegments(text, 45)).toEqual([
       "First sentence here. Second sentence here!",
       "Third one?",
     ]);
@@ -127,12 +174,198 @@ describe("splitSpeechText", () => {
 
   it("never splits a word when a sentence exceeds the limit", () => {
     const text = "alpha beta gamma delta epsilon";
-    const chunks = splitSpeechText(text, 12);
-    expect(chunks).toEqual(["alpha beta", "gamma delta", "epsilon"]);
-    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(12);
+    const segments = splitSpeechSegments(text, 12);
+    expect(segments).toEqual(["alpha beta", "gamma delta", "epsilon"]);
+    for (const segment of segments) expect(segment.length).toBeLessThanOrEqual(12);
   });
 
   it("drops empty paragraphs", () => {
-    expect(splitSpeechText("\n\n  \n\nonly", 10)).toEqual(["only"]);
+    expect(splitSpeechSegments("\n\n  \n\nonly", 10)).toEqual(["only"]);
+  });
+
+  it("starts small and doubles each segment up to the ceiling", () => {
+    const sentence = "This sentence is exactly forty-nine chars long ok.";
+    const text = Array.from({ length: 60 }, () => sentence).join(" ");
+    const segments = splitSpeechSegments(text, 1000);
+    expect(segments.join(" ")).toBe(text);
+    expect(segments[0]!.length).toBeLessThanOrEqual(SPEECH_FIRST_SEGMENT_CHARS);
+    expect(segments.length).toBeGreaterThan(4);
+    let target = SPEECH_FIRST_SEGMENT_CHARS;
+    for (const [index, segment] of segments.entries()) {
+      expect(segment.length).toBeLessThanOrEqual(target);
+      // Packed with whole sentences: one more would not have fit. The last
+      // segment is whatever remains, so it may be short.
+      if (index < segments.length - 1) {
+        expect(segment.length + 1 + sentence.length).toBeGreaterThan(target);
+      }
+      target = Math.min(target * 2, 1000);
+    }
+  });
+
+  it("never splits a sentence below the ceiling, even for the first segment", () => {
+    const long = `${"word ".repeat(80)}end.`;
+    expect(splitSpeechSegments(`${long} Short one.`, 4096)).toEqual([long, "Short one."]);
+  });
+});
+
+describe("normalizeSpokenText", () => {
+  it("separates the letters of a ticket key so it is not read as a word", () => {
+    expect(normalizeSpokenText("Fixed SUP-1402 today.")).toBe("Fixed S-U-P 1402 today.");
+  });
+
+  it("spells a commit hash in its short form", () => {
+    expect(normalizeSpokenText("pushed as cabc7d2b")).toBe("pushed as c a b c 7 d 2 b");
+    expect(normalizeSpokenText("at 0f2c9ab5d3e77104ffaa")).toBe("at 0 f 2 c 9 a b 5");
+  });
+
+  it("leaves words and plain numbers alone", () => {
+    expect(normalizeSpokenText("the facade decade 1402 3773")).toBe("the facade decade 1402 3773");
+  });
+
+  it("reads only the file name of a path", () => {
+    expect(normalizeSpokenText("See apps/web/src/state/readAloud.ts now.")).toBe(
+      "See readAloud.ts now.",
+    );
+    expect(normalizeSpokenText("in src/index.ts")).toBe("in index.ts");
+  });
+
+  it("keeps a bare slash pair that is not a path", () => {
+    expect(normalizeSpokenText("and/or either")).toBe("and/or either");
+  });
+
+  it("does not mistake a URL's own path for a file path", () => {
+    expect(normalizeSpokenText("open https://example.com/docs")).toBe(
+      "open https://example.com/docs",
+    );
+  });
+
+  it("says versions, dotted numbers and issue numbers the way they are meant", () => {
+    expect(normalizeSpokenText("v0.0.40 fixes #16")).toBe(
+      "version 0 point 0 point 40 fixes number 16",
+    );
+    expect(normalizeSpokenText("host 192.168.0.20")).toBe("host 192 point 168 point 0 point 20");
+    expect(normalizeSpokenText("about 1.5 seconds")).toBe("about 1.5 seconds");
+  });
+});
+
+describe("prepareSpeechBlocks", () => {
+  it("keeps the kind of each flattened block", () => {
+    const markdown = [
+      "## What happens next",
+      "",
+      "- First item",
+      "- Second item",
+      "",
+      "Done.",
+    ].join("\n");
+    expect(prepareSpeechBlocks(markdown)).toEqual([
+      { kind: "heading", text: "What happens next." },
+      { kind: "list-item", text: "First item." },
+      { kind: "list-item", text: "Second item." },
+      { kind: "paragraph", text: "Done." },
+    ]);
+  });
+
+  it("speaks the word breaks in a snake_case code span", () => {
+    expect(prepareSpeechText("Set `speech_dir` first.")).toBe("Set speech dir first.");
+  });
+});
+
+describe("renderSpeechText", () => {
+  const blocks = [
+    { kind: "heading", text: "Confirming the model." },
+    { kind: "list-item", text: "Comments through コメント are not recorded." },
+  ] as const;
+
+  it("adds nothing a plain endpoint would read out loud", () => {
+    expect(
+      renderSpeechText(blocks, { dialect: "plain", voice: "af_heart", cjkVoice: "jf_alpha" }),
+    ).toBe("Confirming the model.\n\nComments through コメント are not recorded.");
+  });
+
+  it("pauses after each block and hands CJK runs to the other voice", () => {
+    expect(
+      renderSpeechText(blocks, { dialect: "kokoro", voice: "af_heart", cjkVoice: "jf_alpha" }),
+    ).toBe(
+      "Confirming the model. [pause:0.6s]\n\n" +
+        "Comments through [voice:jf_alpha]コメント[voice:af_heart] are not recorded.",
+    );
+  });
+
+  it("leaves CJK to the main voice when no second voice is configured", () => {
+    expect(renderSpeechText(blocks, { dialect: "kokoro", voice: "af_heart", cjkVoice: "" })).toBe(
+      "Confirming the model. [pause:0.6s]\n\nComments through コメント are not recorded.",
+    );
+  });
+
+  it("keeps CJK punctuation inside the routed run", () => {
+    expect(
+      renderSpeechText([{ kind: "paragraph", text: "記録されません。 Done." }], {
+        dialect: "kokoro",
+        voice: "af_heart",
+        cjkVoice: "jf_alpha",
+      }),
+    ).toBe("[voice:jf_alpha]記録されません。[voice:af_heart] Done.");
+  });
+
+  it("gives a list its shorter beat and never trails the last block", () => {
+    expect(
+      renderSpeechText(
+        [
+          { kind: "list-item", text: "One." },
+          { kind: "paragraph", text: "Two." },
+        ],
+        { dialect: "kokoro", voice: "af_heart", cjkVoice: "" },
+      ),
+    ).toBe("One. [pause:0.35s]\n\nTwo.");
+  });
+});
+
+describe("planSpeechSegments", () => {
+  const kokoro = { dialect: "kokoro", voice: "af_heart", cjkVoice: "" } as const;
+  const plain = { dialect: "plain", voice: "af_heart", cjkVoice: "" } as const;
+
+  it("gives a table its own segment so a summary cannot move another boundary", () => {
+    const markdown = [
+      "Here are the results.",
+      "",
+      "| step | result |",
+      "| --- | --- |",
+      "| before | flat |",
+      "",
+      "That is all.",
+    ].join("\n");
+    const plans = planSpeechSegments(prepareSpeechBlocks(markdown), plain, 4096);
+    expect(plans).toEqual([
+      { kind: "text", text: "Here are the results." },
+      {
+        kind: "table",
+        source: "| step | result |\n| --- | --- |\n| before | flat |",
+        fallback: "Table. Columns: step, result.\n\nbefore: flat.",
+      },
+      { kind: "text", text: "That is all." },
+    ]);
+  });
+
+  it("counts the same segments whatever a summary would say", () => {
+    const markdown = ["Intro.", "", "| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
+    const blocks = prepareSpeechBlocks(markdown);
+    expect(planSpeechSegments(blocks, plain, 4096)).toHaveLength(2);
+    expect(planSpeechSegments(blocks, kokoro, 4096)).toHaveLength(2);
+  });
+
+  it("paces table rows like blocks in a dialect that pauses", () => {
+    const markdown = ["| step | result |", "| --- | --- |", "| before | flat |"].join("\n");
+    const plans = planSpeechSegments(prepareSpeechBlocks(markdown), kokoro, 4096);
+    expect(plans[0]).toEqual({
+      kind: "table",
+      source: markdown,
+      fallback: "Table. Columns: step, result. [pause:0.35s]\n\nbefore: flat.",
+    });
+  });
+
+  it("leaves a message without tables as one run of text segments", () => {
+    const plans = planSpeechSegments(prepareSpeechBlocks("One. Two."), plain, 4096);
+    expect(plans).toEqual([{ kind: "text", text: "One. Two." }]);
   });
 });

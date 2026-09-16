@@ -2,26 +2,30 @@ import { useAtomValue } from "@effect/atom-react";
 import {
   READ_ALOUD_IDLE_STATE,
   ReadAloudController,
+  readAloudErrorMessage,
   readAloudMessageKey,
   type ReadAloudState,
 } from "@t3tools/client-runtime/read-aloud";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
 import { withPreparedConnection } from "@t3tools/client-runtime/state/session";
 import {
+  type AtomCommandResult,
   createEnvironmentRpcCommand,
+  isAtomCommandInterrupted,
   runAtomCommand,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import {
   type EnvironmentId,
   type ScopedThreadRef,
-  type SpeechSynthesizeInput,
+  type SpeechSource,
   WS_METHODS,
 } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { useSyncExternalStore } from "react";
 
 import { toastManager } from "../components/ui/toast";
+import { getClientSettings, subscribeClientSettings } from "../hooks/useSettings";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { createReadAloudPlayer } from "../lib/readAloudPlayer";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -36,7 +40,7 @@ import { environmentThreadDetails } from "./threads";
 export interface ReadAloudRequest {
   readonly key: string;
   readonly environmentId: EnvironmentId;
-  readonly input: SpeechSynthesizeInput;
+  readonly input: SpeechSource;
 }
 
 export type ReadAloudPhase = "idle" | "loading" | "playing";
@@ -49,11 +53,50 @@ const synthesizeSpeech = createEnvironmentRpcCommand(connectionAtomRuntime, {
 let state: ReadAloudState = READ_ALOUD_IDLE_STATE;
 const listeners = new Set<() => void>();
 
+const player = createReadAloudPlayer();
+
+// Deferred to first use: subscribing hydrates client settings through the
+// local API, which is not installed yet when this module loads.
+let playbackRateSynced = false;
+function ensurePlaybackRateSynced(): void {
+  if (playbackRateSynced) return;
+  playbackRateSynced = true;
+  const apply = () => player.setPlaybackRate(getClientSettings().readAloudPlaybackRate);
+  subscribeClientSettings(apply);
+  apply();
+}
+
+/**
+ * Turns a failed synthesis command into an error the toast can act on. The raw
+ * cause goes to the console because a squashed cause often carries the only
+ * clue (a tag, a parse failure) and the toast has room for one sentence. A
+ * client whose code disagrees with the environment — a tab left open across a
+ * server upgrade — surfaces here as a cause with nothing to report, so say what
+ * fixes it instead of blaming the message.
+ */
+type SpeechCommandFailure = Extract<
+  AtomCommandResult<unknown, unknown>,
+  { readonly _tag: "Failure" }
+>;
+
+function speechRequestError(result: SpeechCommandFailure): Error {
+  console.error("Read aloud: speech.synthesize failed", result.cause);
+  if (isAtomCommandInterrupted(result)) {
+    return new Error("Read aloud stopped before the audio was ready. Try again.");
+  }
+  const squashed = squashAtomCommandFailure(result);
+  if (squashed === undefined || squashed === null) {
+    return new Error("Read aloud failed. Reload the page and try again.");
+  }
+  return new Error(readAloudErrorMessage(squashed));
+}
+
 /** The one read-aloud controller for this client; the environment synthesizes, the browser plays. */
 const controller = new ReadAloudController<ReadAloudRequest>({
-  player: createReadAloudPlayer(),
-  resolveAudio: (request, signal) =>
-    withPreparedConnection(
+  player,
+  resolveAudio: (request, segment, signal) => {
+    ensurePlaybackRateSynced();
+    return withPreparedConnection(
       {
         registry: appAtomRegistry,
         atom: environmentSession.preparedConnectionValueAtom(request.environmentId),
@@ -63,15 +106,16 @@ const controller = new ReadAloudController<ReadAloudRequest>({
         const result = await runAtomCommand(
           appAtomRegistry,
           synthesizeSpeech,
-          { environmentId: request.environmentId, input: request.input },
+          { environmentId: request.environmentId, input: { source: request.input, segment } },
           { reportFailure: false },
         );
-        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        if (result._tag === "Failure") throw speechRequestError(result);
         const url = resolveAssetUrl(connection.httpBaseUrl, result.value.relativeUrl);
         if (url === null) throw new Error("The environment returned an invalid audio URL.");
-        return { url };
+        return { url, segmentCount: result.value.segmentCount };
       },
-    ),
+    );
+  },
   onStateChange: (next) => {
     state = next;
     for (const listener of listeners) listener();
@@ -79,7 +123,7 @@ const controller = new ReadAloudController<ReadAloudRequest>({
       toastManager.add({
         type: "error",
         title: "Read aloud failed",
-        description: next.error ?? "Could not read this message aloud.",
+        description: next.error ?? "Read aloud failed for an unknown reason.",
       });
       controller.dismissError();
     }

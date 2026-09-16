@@ -61,8 +61,13 @@ navigate to their sources.
 Every finished assistant response has a **Read aloud** control next to its copy
 button on web, desktop, and mobile. Press it to hear the response; press again to
 stop. Starting another response stops the one playing, and leaving the thread
-stops playback. Code blocks and tool output are skipped, tables are announced as
-omitted, and links are read by their label.
+stops playback. Code blocks and tool output are skipped, and links are read by
+their label. A short table is read a row at a time with each cell's column; a
+long one is announced by its shape instead. Identifiers are spoken the way you
+would say them: a ticket key letter by letter, a file path by its file name, and
+a commit hash in its short form. Playback speed (1× to 2×) is a
+per-device setting in the same section; on mobile it lives under **Settings →
+General → Read Aloud**. The audio is time-stretched, so the voice keeps its pitch.
 
 Read aloud is off until the environment owner configures a speech service under
 **Settings → General → Read aloud**. The service is any endpoint that speaks the
@@ -71,9 +76,30 @@ model server on your own machine or network with no key. Enter the model and
 voice names that endpoint expects, then use **Test voice** to confirm it works.
 Mobile reads whatever the environment has configured; it cannot change it.
 
+Set **Speech dialect** to Kokoro when the endpoint is a Kokoro server. That lets
+responses pause between a heading and the bullets under it, and adds a **voice
+for CJK text**: Japanese, Chinese and Korean are read by the voice you name
+there instead of being spelled out character by character. It defaults to a
+Japanese voice, and everything CJK goes to it, so Chinese is read with Japanese
+readings and Korean gets whichever voice you set. Name a Chinese voice if you
+would rather have it the other way round. Leave the dialect on Standard for
+every other endpoint, which would otherwise read those instructions out loud.
+
+A table can be summarized rather than read out. Point **Table summary URL** and
+**Table summary model** at any endpoint that speaks the OpenAI chat API — a
+model on your own machine is the intent — and a table is spoken as a sentence or
+two about what it shows instead of cell by cell. Leave the URL blank to keep the
+plain reading. The summary is only ever an improvement: if the model is
+unreachable, slow, or answers with nothing useful, the table is read out as
+before and playback carries on. Expect the first table after the model has been
+idle to fall back, since loading a local model can outlast the wait.
+
 Synthesis runs on the environment and the audio is cached there, so replaying a
-response is instant and repeated listens cost nothing. Only the message text is
-sent to the speech service you configured.
+response is instant and repeated listens cost nothing. Long responses are
+synthesized a few sentences at a time: playback starts as soon as the opening
+sentences are ready and the rest is prepared while you listen. Only the message
+text is sent to the speech service you configured, and a table's Markdown to
+the summarizer if you set one up.
 
 On web and desktop, the command palette offers **Read latest response aloud**,
 which you can bind to a shortcut under **Settings → Keybindings**.

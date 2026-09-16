@@ -5,7 +5,11 @@ import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
-import type { SidebarProjectGroupingMode } from "@t3tools/contracts";
+import {
+  isReadAloudPlaybackRate,
+  type ReadAloudPlaybackRate,
+  type SidebarProjectGroupingMode,
+} from "@t3tools/contracts";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 
 import * as MobileDatabase from "./mobile-database";
@@ -45,6 +49,8 @@ export interface Preferences {
   /** Fresh keys reset both shelves to collapsed when users update. */
   readonly threadListSettledShelfExpanded?: boolean;
   readonly threadListSnoozedShelfExpanded?: boolean;
+  /** Read-aloud speed on this device; absent means the shared default. */
+  readonly readAloudPlaybackRate?: ReadAloudPlaybackRate;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -105,6 +111,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     planModeEnabled?: boolean;
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
+    readAloudPlaybackRate?: ReadAloudPlaybackRate;
   } = {};
 
   if (typeof parsed.liveActivitiesEnabled === "boolean") {
@@ -180,6 +187,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (typeof parsed.threadListSnoozedShelfExpanded === "boolean") {
     preferences.threadListSnoozedShelfExpanded = parsed.threadListSnoozedShelfExpanded;
+  }
+  if (isReadAloudPlaybackRate(parsed.readAloudPlaybackRate)) {
+    preferences.readAloudPlaybackRate = parsed.readAloudPlaybackRate;
   }
   return preferences;
 }

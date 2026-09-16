@@ -1,5 +1,6 @@
 import {
   SPEECH_DEFAULT_BASE_URL,
+  SPEECH_DEFAULT_CJK_VOICE,
   SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST,
   SPEECH_DEFAULT_MODEL,
   SPEECH_DEFAULT_VOICE,
@@ -23,7 +24,11 @@ const savedSettings = {
   model: "tts-1",
   voice: "nova",
   maxCharsPerRequest: 1000,
-};
+  dialect: "plain",
+  cjkVoice: "",
+  summaryBaseUrl: "",
+  summaryModel: "",
+} as const;
 
 describe("presets", () => {
   it("OpenAI prefills the endpoint fields and keeps the entered key", () => {
@@ -34,6 +39,10 @@ describe("presets", () => {
       model: SPEECH_DEFAULT_MODEL,
       voice: SPEECH_DEFAULT_VOICE,
       maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
+      dialect: "plain",
+      cjkVoice: "",
+      summaryBaseUrl: "",
+      summaryModel: "",
     });
   });
 
@@ -45,6 +54,10 @@ describe("presets", () => {
       model: "kokoro",
       voice: "af_bella",
       maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
+      dialect: "kokoro",
+      cjkVoice: SPEECH_DEFAULT_CJK_VOICE,
+      summaryBaseUrl: "",
+      summaryModel: "",
     });
   });
 });
@@ -63,6 +76,10 @@ describe("patches", () => {
       model: " tts-1 ",
       voice: " nova ",
       maxCharsPerRequest: " 1500 ",
+      dialect: "plain",
+      cjkVoice: " jf_alpha ",
+      summaryBaseUrl: "",
+      summaryModel: "",
     });
     expect(result).toEqual({
       ok: true,
@@ -72,8 +89,23 @@ describe("patches", () => {
         model: "tts-1",
         voice: "nova",
         maxCharsPerRequest: 1500,
+        dialect: "plain",
+        // Dropped with the dialect that cannot route a voice.
+        cjkVoice: "",
+        summaryBaseUrl: "",
+        summaryModel: "",
       },
     });
+  });
+
+  it("keeps the CJK voice when the dialect can route to it", () => {
+    const result = validateReadAloudForm({
+      ...readAloudFormFromSettings(savedSettings),
+      apiKey: "sk-test",
+      dialect: "kokoro",
+      cjkVoice: " jf_alpha ",
+    });
+    expect(result.ok && result.settings.cjkVoice).toBe("jf_alpha");
   });
 
   it("leaving the redacted key untouched sends the sentinel back so the stored key survives", () => {
@@ -113,6 +145,23 @@ describe("validation", () => {
     ).toBe(true);
   });
 
+  it("rejects a summarizer with only half its configuration", () => {
+    const url = validateReadAloudForm({ ...validForm, summaryBaseUrl: "http://x.test/v1" });
+    expect(!url.ok && Object.keys(url.errors)).toEqual(["summaryModel"]);
+    const model = validateReadAloudForm({ ...validForm, summaryModel: "qwen" });
+    expect(!model.ok && Object.keys(model.errors)).toEqual(["summaryBaseUrl"]);
+  });
+
+  it("accepts a complete summarizer and trims it", () => {
+    const result = validateReadAloudForm({
+      ...validForm,
+      summaryBaseUrl: " http://127.0.0.1:11434/v1 ",
+      summaryModel: " qwen3.6:35b-a3b ",
+    });
+    expect(result.ok && result.settings.summaryBaseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(result.ok && result.settings.summaryModel).toBe("qwen3.6:35b-a3b");
+  });
+
   it("allows an empty API key for unauthenticated local servers", () => {
     expect(validateReadAloudForm({ ...validForm, apiKey: "" }).ok).toBe(true);
   });
@@ -125,5 +174,7 @@ describe("dirty tracking", () => {
     expect(isReadAloudFormDirty({ ...form, model: " tts-1 " }, savedSettings)).toBe(false);
     expect(isReadAloudFormDirty({ ...form, voice: "alloy" }, savedSettings)).toBe(true);
     expect(isReadAloudFormDirty({ ...form, apiKey: "sk-new" }, savedSettings)).toBe(true);
+    expect(isReadAloudFormDirty({ ...form, dialect: "kokoro" }, savedSettings)).toBe(true);
+    expect(isReadAloudFormDirty({ ...form, cjkVoice: "jf_alpha" }, savedSettings)).toBe(true);
   });
 });

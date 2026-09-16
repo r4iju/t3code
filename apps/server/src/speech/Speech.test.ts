@@ -38,6 +38,10 @@ const settings: SpeechSettings = {
   model: "tts-1",
   voice: "alloy",
   maxCharsPerRequest: 4096,
+  dialect: "plain",
+  cjkVoice: "",
+  summaryBaseUrl: "",
+  summaryModel: "",
 };
 
 const RequestBody = Schema.Struct({
@@ -45,8 +49,15 @@ const RequestBody = Schema.Struct({
   input: Schema.String,
   voice: Schema.String,
   response_format: Schema.String,
+  allow_voice_tags: Schema.optionalKey(Schema.Boolean),
 });
 const decodeRequest = Schema.decodeUnknownSync(Schema.fromJsonString(RequestBody));
+const SummaryRequestBody = Schema.Struct({
+  model: Schema.String,
+  messages: Schema.Array(Schema.Struct({ role: Schema.String, content: Schema.String })),
+  reasoning_effort: Schema.String,
+});
+const decodeSummaryRequest = Schema.decodeUnknownSync(Schema.fromJsonString(SummaryRequestBody));
 const text = new TextEncoder();
 const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
@@ -60,10 +71,26 @@ function fixture(options?: {
   readonly speech?: SpeechSettings | null;
   readonly respond?: (body: typeof RequestBody.Type) => Response;
   readonly unreachable?: boolean;
+  /** Answers the summarizer endpoint; absent means it is not reachable. */
+  readonly summary?: () => Response;
 }) {
   const requests: RecordedRequest[] = [];
+  const summaryRequests: Array<typeof SummaryRequestBody.Type> = [];
   const http = HttpClient.make((request) =>
     Effect.suspend(() => {
+      if (request.url.endsWith("/chat/completions")) {
+        if (request.body._tag !== "Uint8Array") throw new Error("expected a JSON body");
+        summaryRequests.push(decodeSummaryRequest(decodeText(request.body.body)));
+        const summary = options?.summary;
+        if (summary === undefined) {
+          return Effect.fail(
+            new HttpClientError.HttpClientError({
+              reason: new HttpClientError.TransportError({ request, description: "ECONNREFUSED" }),
+            }),
+          );
+        }
+        return Effect.succeed(HttpClientResponse.fromWeb(request, summary()));
+      }
       const body =
         request.body._tag === "Uint8Array" ? decodeRequest(decodeText(request.body.body)) : null;
       if (!body) throw new Error("expected a JSON body");
@@ -94,7 +121,7 @@ function fixture(options?: {
     ),
     Layer.provideMerge(baseLayer),
   );
-  return { requests, layer };
+  return { requests, summaryRequests, layer };
 }
 
 const readResult = (relativeUrl: string) =>
@@ -111,16 +138,129 @@ describe("Speech", () => {
   it.effect("fails when read aloud is not configured", () =>
     Effect.gen(function* () {
       const speech = yield* Speech.Speech;
-      const error = yield* Effect.flip(speech.synthesizeText("Hello there."));
+      const error = yield* Effect.flip(speech.synthesizeText("Hello there.", 0));
       expect(error._tag).toBe("SpeechNotConfiguredError");
     }).pipe(Effect.provide(fixture({ speech: null }).layer)),
+  );
+
+  const TABLE = "| step | result |\n| --- | --- |\n| before | flat |";
+  const withSummarizer = {
+    ...settings,
+    summaryBaseUrl: "http://127.0.0.1:11434/v1",
+    summaryModel: "qwen3.6:35b-a3b",
+  };
+  const chatResponse = (content: unknown) =>
+    new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+      headers: { "content-type": "application/json" },
+    });
+
+  it.effect("speaks a summary of a table when a summarizer is configured", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: withSummarizer,
+        summary: () => chatResponse("  The table compares before and after.  "),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText(TABLE, 0);
+      expect(test.requests[0]!.body.input).toBe("The table compares before and after.");
+      // Reasoning would spend the token budget and answer with empty content.
+      expect(test.summaryRequests[0]!.reasoning_effort).toBe("none");
+      expect(test.summaryRequests[0]!.messages[0]!.content).toContain("before");
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("reads the table itself when the summarizer answers with nothing", () =>
+    Effect.gen(function* () {
+      const test = fixture({ speech: withSummarizer, summary: () => chatResponse("   ") });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText(TABLE, 0);
+      expect(test.requests[0]!.body.input).toBe("Table. Columns: step, result.\n\nbefore: flat.");
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("reads the table itself when the summarizer cannot be reached", () =>
+    Effect.gen(function* () {
+      const test = fixture({ speech: withSummarizer });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const result = yield* speech.synthesizeText(TABLE, 0);
+      expect(result.segmentCount).toBe(1);
+      expect(test.requests[0]!.body.input).toBe("Table. Columns: step, result.\n\nbefore: flat.");
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("never asks the summarizer when none is configured", () =>
+    Effect.gen(function* () {
+      const test = fixture();
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText(TABLE, 0);
+      expect(test.summaryRequests).toHaveLength(0);
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("keeps the segment count while a table waits on its summary", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: withSummarizer,
+        summary: () => chatResponse("A summary far longer than the table reading it replaces."),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const intro = yield* speech.synthesizeText(`Intro.\n\n${TABLE}\n\nDone.`, 0);
+      const table = yield* speech.synthesizeText(`Intro.\n\n${TABLE}\n\nDone.`, 1);
+      expect(intro.segmentCount).toBe(3);
+      expect(table.segmentCount).toBe(3);
+      expect(test.requests[0]!.body.input).toBe("Intro.");
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("starts a table's summary while an earlier segment is still being read", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: withSummarizer,
+        summary: () => chatResponse("The table compares before and after."),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const message = `Intro.\n\n${TABLE}\n\nDone.`;
+      yield* speech.synthesizeText(message, 0);
+      // Asked before anyone requested the table, so a cold model loads against
+      // the intro's playing time instead of against silence.
+      expect(test.summaryRequests).toHaveLength(1);
+      const table = yield* speech.synthesizeText(message, 1);
+      // ...and the table joins that answer rather than asking a second time.
+      expect(test.summaryRequests).toHaveLength(1);
+      expect(test.requests.at(-1)!.body.input).toBe("The table compares before and after.");
+      expect(table.segmentCount).toBe(3);
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("keeps dialect markers out of a plain endpoint's request", () =>
+    Effect.gen(function* () {
+      const test = fixture();
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText("## Heading\n\nComments through コメント stay.", 0);
+      expect(test.requests[0]!.body.input).toBe("Heading.\n\nComments through コメント stay.");
+      expect(test.requests[0]!.body.allow_voice_tags).toBeUndefined();
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("pauses between blocks and routes CJK to its own voice in the Kokoro dialect", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: { ...settings, dialect: "kokoro", cjkVoice: "jf_alpha" },
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      yield* speech.synthesizeText("## Heading\n\nComments through `コメント` stay.", 0);
+      expect(test.requests[0]!.body.input).toBe(
+        "Heading. [pause:0.6s]\n\nComments through [voice:jf_alpha]コメント[voice:alloy] stay.",
+      );
+      expect(test.requests[0]!.body.allow_voice_tags).toBe(true);
+    }).pipe(Effect.provide(baseLayer)),
   );
 
   it.effect("synthesizes once, serves the cached file, and reuses it for repeat calls", () =>
     Effect.gen(function* () {
       const test = fixture();
       const speech = yield* Effect.provide(Speech.Speech, test.layer);
-      const first = yield* speech.synthesizeText("Hello **there**.");
+      const first = yield* speech.synthesizeText("Hello **there**.", 0);
       expect(first.mimeType).toBe("audio/mpeg");
       const read = yield* readResult(first.relativeUrl);
       expect(read.asset).toEqual({ kind: "file", path: read.asset.path, mimeType: "audio/mpeg" });
@@ -135,7 +275,7 @@ describe("Speech", () => {
         response_format: "mp3",
       });
 
-      const second = yield* speech.synthesizeText("Hello **there**.");
+      const second = yield* speech.synthesizeText("Hello **there**.", 0);
       expect((yield* readResult(second.relativeUrl)).contents).toBe("[Hello there.]");
       expect(test.requests).toHaveLength(1);
       // The hit touches the file for LRU order; a millisecond clock passed as
@@ -147,7 +287,7 @@ describe("Speech", () => {
       expect(mtime.getTime()).toBeLessThan(year2100Ms);
 
       const concurrent = yield* Effect.all(
-        [speech.synthesizeText("Another line."), speech.synthesizeText("Another line.")],
+        [speech.synthesizeText("Another line.", 0), speech.synthesizeText("Another line.", 0)],
         { concurrency: "unbounded" },
       );
       expect(concurrent[0]!.relativeUrl).toBe(concurrent[1]!.relativeUrl);
@@ -160,11 +300,11 @@ describe("Speech", () => {
       const alloy = fixture();
       const nova = fixture({ speech: { ...settings, voice: "nova" } });
       const first = yield* Effect.provide(
-        Effect.flatMap(Speech.Speech, (speech) => speech.synthesizeText("Same words.")),
+        Effect.flatMap(Speech.Speech, (speech) => speech.synthesizeText("Same words.", 0)),
         alloy.layer,
       );
       const second = yield* Effect.provide(
-        Effect.flatMap(Speech.Speech, (speech) => speech.synthesizeText("Same words.")),
+        Effect.flatMap(Speech.Speech, (speech) => speech.synthesizeText("Same words.", 0)),
         nova.layer,
       );
       expect(first.relativeUrl).not.toBe(second.relativeUrl);
@@ -178,7 +318,7 @@ describe("Speech", () => {
     Effect.gen(function* () {
       const test = fixture({ speech: { ...settings, apiKey: "" } });
       yield* Effect.provide(
-        Effect.flatMap(Speech.Speech, (speech) => speech.synthesizeText("Local model.")),
+        Effect.flatMap(Speech.Speech, (speech) => speech.synthesizeText("Local model.", 0)),
         test.layer,
       );
       expect(test.requests[0]!.authorization).toBeUndefined();
@@ -189,7 +329,7 @@ describe("Speech", () => {
     Effect.gen(function* () {
       const attempt = (options: Parameters<typeof fixture>[0]) =>
         Effect.provide(
-          Effect.flatMap(Speech.Speech, (speech) => Effect.flip(speech.synthesizeText("Hi."))),
+          Effect.flatMap(Speech.Speech, (speech) => Effect.flip(speech.synthesizeText("Hi.", 0))),
           fixture(options).layer,
         );
       const status = (code: number, body = "") => ({
@@ -213,30 +353,51 @@ describe("Speech", () => {
     Effect.gen(function* () {
       const test = fixture();
       const speech = yield* Effect.provide(Speech.Speech, test.layer);
-      expect((yield* Effect.flip(speech.synthesizeText("```\nls -la\n```")))._tag).toBe(
+      expect((yield* Effect.flip(speech.synthesizeText("```\nls -la\n```", 0)))._tag).toBe(
         "SpeechNothingToReadError",
       );
       const tooLong = yield* Effect.flip(
-        speech.synthesizeText("word ".repeat(SPEECH_MAX_TOTAL_CHARS / 5 + 10)),
+        speech.synthesizeText("word ".repeat(SPEECH_MAX_TOTAL_CHARS / 5 + 10), 0),
       );
       expect(tooLong).toMatchObject({ _tag: "SpeechTooLongError", limit: SPEECH_MAX_TOTAL_CHARS });
       expect(test.requests).toHaveLength(0);
     }).pipe(Effect.provide(baseLayer)),
   );
 
-  it.effect("chunks long text into sequential requests and one file in order", () =>
+  it.effect("synthesizes one growing, sentence-aligned segment per call", () =>
     Effect.gen(function* () {
-      const test = fixture({ speech: { ...settings, maxCharsPerRequest: 200 } });
+      const test = fixture({ speech: { ...settings, maxCharsPerRequest: 400 } });
       const speech = yield* Effect.provide(Speech.Speech, test.layer);
-      const paragraphs = Array.from(
-        { length: 6 },
-        (_, index) => `Paragraph ${index} ${"lorem ipsum ".repeat(6)}ends here.`,
+      const prose = Array.from(
+        { length: 20 },
+        (_, index) => `Sentence ${index} says ${"lorem ipsum ".repeat(4)}and ends here.`,
+      ).join(" ");
+
+      const first = yield* speech.synthesizeText(prose, 0);
+      expect(first.segmentCount).toBeGreaterThan(2);
+      expect(test.requests).toHaveLength(1);
+      const opening = test.requests[0]!.body.input;
+      expect(opening.length).toBeLessThanOrEqual(200);
+      expect(prose.startsWith(opening)).toBe(true);
+      expect((yield* readResult(first.relativeUrl)).contents).toBe(`[${opening}]`);
+
+      const rest = yield* Effect.forEach(
+        Array.from({ length: first.segmentCount - 1 }, (_, index) => index + 1),
+        (segment) => speech.synthesizeText(prose, segment),
       );
-      const result = yield* speech.synthesizeText(paragraphs.join("\n\n"));
-      expect(test.requests.length).toBeGreaterThan(1);
-      const expected = test.requests.map((request) => `[${request.body.input}]`).join("");
-      expect((yield* readResult(result.relativeUrl)).contents).toBe(expected);
-      for (const paragraph of paragraphs) expect(expected).toContain(paragraph);
+      expect(test.requests).toHaveLength(first.segmentCount);
+      expect(test.requests.map((request) => request.body.input).join(" ")).toBe(prose);
+      for (const request of test.requests) {
+        expect(request.body.input.length).toBeLessThanOrEqual(400);
+      }
+      expect(new Set(rest.map((result) => result.relativeUrl)).size).toBe(rest.length);
+      for (const result of rest) expect(result.segmentCount).toBe(first.segmentCount);
+
+      const missing = yield* Effect.flip(speech.synthesizeText(prose, first.segmentCount));
+      expect(missing).toMatchObject({
+        _tag: "SpeechSegmentNotFoundError",
+        segmentCount: first.segmentCount,
+      });
     }).pipe(Effect.provide(baseLayer)),
   );
 

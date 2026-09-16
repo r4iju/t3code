@@ -533,6 +533,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Auto-settle merged threads"]
         : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
+      ...(settings.readAloudPlaybackRate !== DEFAULT_UNIFIED_SETTINGS.readAloudPlaybackRate
+        ? ["Read aloud speed"]
+        : []),
       ...getChangedTypographySettingLabels(settings),
       ...(settings.diffIgnoreWhitespace !== DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace
         ? ["Diff whitespace changes"]
@@ -634,6 +637,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.showSkillsInSlashMenu,
       settings.timestampFormat,
       settings.wordWrap,
+      settings.readAloudPlaybackRate,
       followSystem,
       theme,
       themeHalves,
@@ -707,6 +711,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+      readAloudPlaybackRate: DEFAULT_UNIFIED_SETTINGS.readAloudPlaybackRate,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
       proactivePanelsEnabled: DEFAULT_UNIFIED_SETTINGS.proactivePanelsEnabled,
