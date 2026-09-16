@@ -337,7 +337,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["kokoro pauses markers inline tags pronunciation"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-cjk-voice",
@@ -345,7 +346,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["japanese chinese korean kanji kana hangul second voice"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-summary-url",
@@ -353,7 +355,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["ollama local llm chat completions summarize tables"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-summary-model",
@@ -361,7 +364,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["ollama qwen model summarize tables"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "read-aloud-max-chars",
@@ -378,7 +382,8 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     targetId: "read-aloud-enabled",
     searchTerms: ["playback rate faster slower 1.5x 2x speech"],
-    primaryOnly: true,
+    environmentOnly: true,
+    scope: "environment-defaults",
   },
   {
     id: "new-threads",
