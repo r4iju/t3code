@@ -129,9 +129,11 @@ const readResult = (relativeUrl: string) =>
     const suffix = relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
     const separator = suffix.indexOf("/");
     const asset = yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1));
-    expect(asset).not.toBeNull();
+    if (asset?.kind !== "file") {
+      return yield* Effect.die(`expected a file asset, got ${asset?.kind ?? "none"}`);
+    }
     const fs = yield* FileSystem.FileSystem;
-    return { asset: asset!, contents: decodeText(yield* fs.readFile(asset!.path)) };
+    return { asset, contents: decodeText(yield* fs.readFile(asset.path)) };
   });
 
 describe("Speech", () => {

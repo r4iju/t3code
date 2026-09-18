@@ -1,10 +1,10 @@
+import { ConnectionTraceId } from "./ConnectionTraceId";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import { useNavigation } from "@react-navigation/native";
 import { SymbolView } from "../../components/AppSymbol";
 import { ActivityIndicator, Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
-import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { environmentConnectionNoticeContent } from "./environmentConnectionNoticeContent";
 
 export function EnvironmentConnectionNotice(props: {
@@ -36,21 +36,7 @@ export function EnvironmentConnectionNotice(props: {
         <Text className="text-center text-sm leading-normal text-foreground-muted">
           {content.detail}
           {props.connection.traceId ? (
-            <>
-              {" Trace ID: "}
-              <Text
-                accessibilityHint="Copies the trace ID"
-                accessibilityRole="button"
-                className="underline decoration-dotted"
-                onPress={() =>
-                  copyTextWithHaptic(props.connection.traceId!, {
-                    target: "connection-trace-id",
-                  })
-                }
-              >
-                {props.connection.traceId}
-              </Text>
-            </>
+            <ConnectionTraceId traceId={props.connection.traceId} />
           ) : null}
         </Text>
 
