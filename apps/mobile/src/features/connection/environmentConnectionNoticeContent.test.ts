@@ -22,7 +22,7 @@ describe("environmentConnectionNoticeContent", () => {
     });
   });
 
-  it("keeps retrying for an ordinary failure", () => {
+  it("offers a retry for an ordinary failure", () => {
     expect(
       environmentConnectionNoticeContent({
         environmentLabel: "Studio Mac",
@@ -36,7 +36,7 @@ describe("environmentConnectionNoticeContent", () => {
       }),
     ).toEqual({
       title: "Studio Mac is unavailable",
-      detail: "The app will keep retrying automatically. Relay request timed out.",
+      detail: "Relay request timed out.",
       action: { kind: "retry", label: "Retry now" },
     });
   });
