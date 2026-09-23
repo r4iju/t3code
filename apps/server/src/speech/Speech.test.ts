@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { SPEECH_MAX_TOTAL_CHARS, type SpeechSettings } from "@t3tools/contracts";
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -129,9 +129,10 @@ const readResult = (relativeUrl: string) =>
     const suffix = relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
     const separator = suffix.indexOf("/");
     const asset = yield* resolveAsset(suffix.slice(0, separator), suffix.slice(separator + 1));
-    expect(asset).not.toBeNull();
+    // Speech audio always resolves to a cached file; the media branch cannot appear here.
+    assert(asset?.kind === "file");
     const fs = yield* FileSystem.FileSystem;
-    return { asset: asset!, contents: decodeText(yield* fs.readFile(asset!.path)) };
+    return { asset, contents: decodeText(yield* fs.readFile(asset.path)) };
   });
 
 describe("Speech", () => {

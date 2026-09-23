@@ -158,27 +158,6 @@ export const fetchRemoteSessionState = Effect.fn(
   );
 });
 
-export const fetchRemoteDpopSessionState = Effect.fn(
-  "clientRuntime.authorization.fetchRemoteDpopSessionState",
-)(function* (input: {
-  readonly httpBaseUrl: string;
-  readonly accessToken: string;
-  readonly dpopProof: string;
-  readonly timeoutMs?: number;
-}) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
-  return yield* executeEnvironmentHttpRequest(
-    environmentEndpointUrl(input.httpBaseUrl, "/api/auth/session"),
-    input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
-    client.session({
-      headers: {
-        authorization: `DPoP ${input.accessToken}`,
-        dpop: input.dpopProof,
-      },
-    }),
-  );
-});
-
 /**
  * Without a bearer token the ticket request rides on the ambient cookie
  * session, which the same-origin HTTP client sends on its own.
