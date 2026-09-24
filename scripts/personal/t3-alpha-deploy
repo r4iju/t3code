@@ -1,0 +1,57 @@
+#!/bin/bash
+# t3-alpha-deploy — install a zip from t3-alpha-build on every Mac. Remote hosts
+# go first over SSH, `local` last: installing here restarts the T3 Code this
+# may be running inside, which ends the session driving the deploy.
+#
+# Each host gets this checkout's t3-alpha-install copied next to the zip, so
+# no Mac carries its own installer copy that can drift.
+#
+# Usage: t3-alpha-deploy <zip> [host ...]
+#   hosts default to: emanuel@matebook.lan emanuelfranzen@Mac.lan local
+
+set -uo pipefail
+
+ZIP="${1:?usage: t3-alpha-deploy <zip> [host ...]}"
+shift
+HOSTS=("$@")
+[[ ${#HOSTS[@]} -eq 0 ]] && HOSTS=(emanuel@matebook.lan emanuelfranzen@Mac.lan local)
+INSTALLER="$(cd "$(dirname "$0")" && pwd)/t3-alpha-install"
+REMOTE_LOG='~/Library/Logs/t3-alpha-install.log'
+INFO_PLIST="$(unzip -Z1 "$ZIP" | grep -E '^[^/]+\.app/Contents/Info\.plist$')"
+VERSION="$(unzip -p "$ZIP" "$INFO_PLIST" | plutil -extract CFBundleShortVersionString raw -)"
+[[ -n "$VERSION" ]] || { echo "error: cannot read the app version from $ZIP" >&2; exit 1; }
+
+deploy_remote() { # <host>
+  local host="$1" zip_name before pid result
+  zip_name="$(basename "$ZIP")"
+  echo "== $host: copying $zip_name"
+  scp -q "$ZIP" "$INSTALLER" "$host:/tmp/" || return 1
+  before=$(ssh "$host" "cat $REMOTE_LOG 2>/dev/null | wc -l" | tr -d ' ')
+  pid=$(ssh "$host" "/bin/bash /tmp/t3-alpha-install /tmp/$zip_name --expect-version $VERSION </dev/null" |
+    sed -nE 's/.*\(pid ([0-9]+)\).*/\1/p')
+  [[ -n "$pid" ]] || { echo "   installer did not start"; return 1; }
+  # The installer detaches so it survives the app it replaces; wait for it to exit.
+  while ssh "$host" "kill -0 $pid 2>/dev/null"; do sleep 3; done
+  ssh "$host" "rm -f /tmp/$zip_name /tmp/t3-alpha-install"
+  result=$(ssh "$host" "tail -n +$((before + 1)) $REMOTE_LOG")
+  sed 's/^/   /' <<<"$result"
+  grep -q "SUCCESS:" <<<"$result"
+}
+
+failed=()
+for host in "${HOSTS[@]}"; do
+  [[ "$host" == local ]] && continue
+  deploy_remote "$host" || failed+=("$host")
+done
+
+if [[ ${#failed[@]} -gt 0 ]]; then
+  echo "Failed on: ${failed[*]}. Skipping this Mac." >&2
+  exit 1
+fi
+
+for host in "${HOSTS[@]}"; do
+  if [[ "$host" == local ]]; then
+    echo "== local: installing (T3 Code here restarts; follow ~/Library/Logs/t3-alpha-install.log)"
+    "$INSTALLER" "$ZIP" --expect-version "$VERSION"
+  fi
+done

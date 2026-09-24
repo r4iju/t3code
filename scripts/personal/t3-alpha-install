@@ -1,0 +1,293 @@
+#!/bin/bash
+# t3-alpha-install — install a locally built "T3 Code (Alpha)" zip and relaunch
+# it, from a terminal that may live INSIDE the app being replaced (a T3 agent
+# session, T3 terminal, SSH, anywhere).
+#
+# Sibling of t3-self-update (Homebrew nightly). Same two-phase shape:
+#   Phase 1 (foreground): re-exec detached via nohup and return immediately, so
+#   the app dying mid-install does not kill the installer.
+#   Phase 2 (detached): graceful quit -> wait for LaunchServices to forget the
+#   app -> backup old bundle -> ditto-extract the zip (no quarantine) -> strip
+#   quarantine BEFORE first exec -> unstick recipe -> launch (with fallbacks)
+#   -> verify a process exists, :3773 listens, and the RUNNING instance reports
+#   the expected version. On failure, roll back to the backup and relaunch it.
+#
+# Two known ways a relaunch silently fails on this Mac:
+#   1. `open -a` right after the old instance quits: LaunchServices still has
+#      the old ASN registered, so `open` just sends "activate" to a dying app,
+#      returns 0, and nothing launches (2026-09-12). Hence wait_for_ls_forget.
+#   2. First exec of a freshly installed *quarantined* bundle can wedge a
+#      per-path launch state at _dyld_start; every later launch freezes.
+#      Stripping quarantine pre-exec avoids poisoning it; the fresh-inode +
+#      rename "unstick" recipe clears it if it happens anyway (t3-self-update).
+#   3. `open -a` hands the caller's environment to the launched app. A shell
+#      inside a T3 agent session carries ELECTRON_RUN_AS_NODE=1 (the server
+#      runs under Electron-as-node), so the relaunched app came up as a bare
+#      Node REPL, read EOF on stdin, and exited after ~1.6s with no window and
+#      no server (2026-09-12, 0.0.43). Hence the env scrub below.
+#   4. Not a failure, but looks like one: an app launched by a detached script
+#      is denied the right to come to front ("not in the list of
+#      permittedFrontASNs"), so it runs behind every other window. bring_front
+#      re-activates it once the server is up and posts a notification either way.
+#
+# Only zips signed by t3-alpha-build are installed. An ad-hoc build's designated
+# requirement is the cdhash of that one build, and TCC grants (Screen Recording,
+# Accessibility, ...), keychain ACLs and Little Snitch rules key on it, so every
+# unsigned build re-prompted for everything on every Mac.
+#
+# After a successful install only the backup just taken is kept; older
+# .bak-*/.failed-* bundles are removed.
+#
+# Usage:
+#   t3-alpha-install <path/to/T3-Code-<ver>-arm64.zip> [--expect-version X]
+#   t3-alpha-install --restart [--expect-version X]   # quit + relaunch only
+#   t3-alpha-install --status                          # what is running right now
+#   --expect-version  fail (and roll back if installing) unless the running
+#                     instance reports version X
+
+set -uo pipefail
+
+APP="/Applications/T3 Code (Alpha).app"
+APP_NAME="T3 Code (Alpha)"
+APP_BIN="$APP/Contents/MacOS/$APP_NAME"
+LOG="$HOME/Library/Logs/t3-alpha-install.log"
+PORT=3773
+SIGNED_REQUIREMENT='identifier "com.t3tools.t3code" and anchor apple generic and certificate leaf[subject.OU] = "C7X9BCC7LP"'
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+# Never let the relaunched app inherit the Electron/Node runtime knobs of the
+# instance we are running inside of (see known failure 3).
+unset ELECTRON_RUN_AS_NODE ELECTRON_NO_ATTACH_CONSOLE ELECTRON_ENABLE_LOGGING NODE_OPTIONS NODE_CHANNEL_FD
+
+if [[ "${1:-}" == "--status" ]]; then
+  main_pid=$(ps ax -o pid= -o command= | grep -F "$APP_BIN" | grep -v -e grep -e Helper -e bin.mjs | awk '{print $1}' | head -1)
+  bundle_ver=$(defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null)
+  if [[ -z "$main_pid" ]]; then
+    echo "not running (bundle on disk: ${bundle_ver:-none})"; exit 1
+  fi
+  listener=$(lsof -nP -iTCP:$PORT -sTCP:LISTEN -t 2>/dev/null | head -1)
+  if [[ -n "$listener" ]]; then port_state="listening (pid $listener)"; else port_state="NOT listening"; fi
+  echo "running: pid $main_pid, started $(ps -o lstart= -p "$main_pid" | xargs), bundle $bundle_ver, :$PORT $port_state"
+  echo "last install log: $(grep -E 'SUCCESS|ERROR|ROLLED BACK' "$LOG" 2>/dev/null | tail -1)"
+  exit 0
+fi
+
+if [[ "${1:-}" != "--detached" ]]; then
+  MODE="${1:-}"
+  if [[ "$MODE" == "--restart" ]]; then
+    ZIP=""
+  elif [[ -f "$MODE" ]]; then
+    ZIP="$(cd "$(dirname "$MODE")" && pwd)/$(basename "$MODE")"
+  else
+    echo "usage: t3-alpha-install <zip>|--restart [--expect-version X]" >&2
+    exit 2
+  fi
+  nohup /bin/bash "$0" --detached "$ZIP" "${2:-}" "${3:-}" >> "$LOG" 2>&1 &
+  disown
+  echo "Started in background (pid $!). Watch: tail -f $LOG"
+  echo "The app will restart; this session will die with it if it runs inside T3."
+  exit 0
+fi
+
+ZIP="$2"
+EXPECT_VERSION=""
+[[ "${3:-}" == "--expect-version" ]] && EXPECT_VERSION="${4:-}"
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
+
+# Only processes whose executable lives inside the Alpha bundle: the Electron
+# main, its helpers, and the bundled server. Never a worktree path.
+app_pids() { ps ax -o pid= -o command= | grep -F "$APP/Contents/" | grep -v grep | awk '{print $1}'; }
+
+# LaunchServices' view, which lags the process table by a few seconds.
+ls_registered() { lsappinfo info -app "$APP_NAME" 2>/dev/null | grep -q "ASN:"; }
+# The bundle's version, not lsappinfo's (lags one install behind) or the
+# server's (apps/server/package.json, which local builds do not bump). Both
+# rolled back a healthy 0.0.45 as "0.0.42" (2026-09-24). stop_app waits for
+# every old pid to exit, so whatever runs from $APP afterwards is this bundle.
+running_version() { defaults read "$APP/Contents/Info" CFBundleShortVersionString 2>/dev/null; }
+
+server_up() { lsof -nP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; }
+
+wait_for() { # <seconds> <fn>
+  local n="$1" fn="$2"
+  for _ in $(seq 1 "$n"); do
+    if "$fn"; then return 0; fi
+    sleep 1
+  done
+  return 1
+}
+have_pids() { [[ -n "$(app_pids)" ]]; }
+no_pids() { [[ -z "$(app_pids)" ]]; }
+ls_forgot() { ! ls_registered; }
+
+stop_app() {
+  local pids
+  pids=$(app_pids)
+  if [[ -z "$pids" ]]; then
+    log "No running instance."
+  else
+    log "Asking $APP_NAME to quit (pids: $(echo $pids))"
+    osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1
+    if wait_for 20 no_pids; then
+      log "Quit cleanly."
+    else
+      pids=$(app_pids)
+      log "Still running after 20s; killing: $(echo $pids)"
+      kill $pids 2>/dev/null
+      sleep 3
+      pids=$(app_pids)
+      [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null
+      sleep 1
+    fi
+  fi
+  # Processes are gone, but `open -a` against an ASN LaunchServices still
+  # holds just "activates" the dead instance and launches nothing.
+  if wait_for 30 ls_forgot; then
+    log "LaunchServices released the app."
+  else
+    log "WARN: LaunchServices still lists $APP_NAME after 30s; continuing."
+  fi
+  sleep 2
+}
+
+launch_app() {
+  open -a "$APP"
+  log "open -a exit=$?"
+  if wait_for 15 have_pids; then return 0; fi
+  log "No process after open -a; retrying with open -n."
+  open -n -a "$APP"
+  log "open -n exit=$?"
+  if wait_for 15 have_pids; then return 0; fi
+  log "No process after open -n; exec'ing the binary directly."
+  nohup "$APP_BIN" >/dev/null 2>&1 &
+  disown
+  if wait_for 15 have_pids; then return 0; fi
+  log "ERROR: no $APP_NAME process after three launch attempts."
+  return 1
+}
+
+launch_and_verify() {
+  # 1) fresh inode for the main binary  2) rename bundle away and back.
+  cp "$APP_BIN" "$APP_BIN.new" && rm "$APP_BIN" && mv "$APP_BIN.new" "$APP_BIN" && chmod +x "$APP_BIN"
+  mv "$APP" "${APP%.app}.updating.app" && mv "${APP%.app}.updating.app" "$APP"
+  log "Unstick recipe applied."
+  launch_app || return 1
+  log "Process up (pids: $(echo $(app_pids))). Waiting for :$PORT ..."
+  local waited=0
+  while ! server_up; do
+    if no_pids; then
+      log "ERROR: $APP_NAME exited after ${waited}s without listening on :$PORT."
+      return 1
+    fi
+    if (( waited >= 120 )); then
+      log "ERROR: server not listening on :$PORT after 120s."
+      local pid
+      pid=$(app_pids | head -1)
+      [[ -n "$pid" ]] && log "Process $pid state: $(vmmap "$pid" 2>&1 | head -1)"
+      return 1
+    fi
+    sleep 1; waited=$((waited + 1))
+  done
+  local ver
+  ver=$(running_version)
+  log "Server up on :$PORT, running version $ver ($(lsappinfo info -app "$APP_NAME" 2>/dev/null | sed -nE 's/.*parentASN="([^"]+)".*/launched by \1/p' | head -1))"
+  if [[ -n "$EXPECT_VERSION" && "$ver" != "$EXPECT_VERSION" ]]; then
+    log "ERROR: expected version $EXPECT_VERSION, got $ver"
+    return 1
+  fi
+  return 0
+}
+
+front_app() { lsappinfo info -only name "$(lsappinfo front 2>/dev/null)" 2>/dev/null | sed -nE 's/.*"LSDisplayName"="([^"]+)".*/\1/p'; }
+
+# Launched from a background script the app cannot take focus itself; ask
+# LaunchServices and the app to activate, then tell the user where things
+# stand so a hidden window is not mistaken for a failed launch.
+bring_front() {
+  open -a "$APP" 2>/dev/null
+  osascript -e "tell application \"$APP_NAME\" to activate" >/dev/null 2>&1
+  sleep 1
+  log "Frontmost app now: $(front_app)"
+}
+notify() { osascript -e "display notification \"$1\" with title \"t3-alpha-install\"" >/dev/null 2>&1; }
+
+prune_old_bundles() { # <backup to keep>
+  local b
+  for b in "${APP%.app}".bak-*.app "${APP%.app}".failed-*.app; do
+    [[ -d "$b" && "$b" != "$1" ]] || continue
+    rm -rf "$b" && log "Removed old bundle $b"
+  done
+}
+
+if [[ -z "$ZIP" ]]; then
+  log "=== t3-alpha-install --restart ==="
+  stop_app
+  if launch_and_verify; then
+    log "SUCCESS: $APP_NAME restarted."
+    bring_front; notify "$APP_NAME restarted and is up on :$PORT."
+    exit 0
+  fi
+  log "ERROR: restart failed; bundle left in place at $APP."
+  notify "$APP_NAME restart FAILED. See $LOG"
+  exit 1
+fi
+
+log "=== t3-alpha-install starting: $ZIP ==="
+
+STAGE="$(mktemp -d /tmp/t3-alpha-install.XXXXXX)"
+trap 'rm -rf "$STAGE"' EXIT
+# ditto does not apply com.apple.quarantine (Archive Utility does).
+if ! ditto -x -k "$ZIP" "$STAGE"; then
+  log "ERROR: failed to extract $ZIP"
+  exit 1
+fi
+NEW_APP="$(find "$STAGE" -maxdepth 1 -name '*.app' | head -1)"
+if [[ -z "$NEW_APP" ]]; then
+  log "ERROR: no .app inside $ZIP"
+  exit 1
+fi
+NEW_VER=$(defaults read "$NEW_APP/Contents/Info" CFBundleShortVersionString 2>/dev/null)
+log "Extracted $(basename "$NEW_APP") version $NEW_VER"
+xattr -dr com.apple.quarantine "$NEW_APP" 2>/dev/null
+if ! codesign --verify --deep --strict -R="$SIGNED_REQUIREMENT" "$NEW_APP"; then
+  log "ERROR: $(basename "$ZIP") is not signed by t3-alpha-build; nothing installed."
+  notify "$APP_NAME $NEW_VER is unsigned; nothing installed. See $LOG"
+  exit 1
+fi
+
+stop_app
+
+BACKUP=""
+if [[ -d "$APP" ]]; then
+  BACKUP="${APP%.app}.bak-$(date +%Y%m%d-%H%M%S).app"
+  mv "$APP" "$BACKUP"
+  log "Backed up old bundle to $BACKUP"
+fi
+mv "$NEW_APP" "$APP"
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null
+log "Installed new bundle; quarantine stripped."
+
+if launch_and_verify; then
+  log "SUCCESS: $APP_NAME $NEW_VER is up."
+  prune_old_bundles "$BACKUP"
+  bring_front; notify "$APP_NAME $NEW_VER installed and up on :$PORT."
+  exit 0
+fi
+
+log "Rolling back."
+notify "$APP_NAME $NEW_VER failed to start; rolling back. See $LOG"
+stop_app
+FAILED="${APP%.app}.failed-$(date +%Y%m%d-%H%M%S).app"
+mv "$APP" "$FAILED" 2>/dev/null && log "Kept failed bundle at $FAILED"
+if [[ -n "$BACKUP" && -d "$BACKUP" ]]; then
+  mv "$BACKUP" "$APP"
+  EXPECT_VERSION=""  # the backup is the previous version by definition
+  if launch_and_verify; then
+    log "ROLLED BACK: previous $APP_NAME is up again."
+    bring_front
+  else
+    log "ERROR: rollback launch failed too. Bundle is at $APP."
+  fi
+else
+  log "ERROR: no backup to roll back to."
+fi
+exit 1

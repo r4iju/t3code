@@ -1,0 +1,62 @@
+#!/bin/bash
+# t3-alpha-build — build a signed "T3 Code (Alpha)" zip (macOS arm64) from the
+# checkout this script lives in. Runs on the Mac that holds the signing
+# certificate; every other Mac only installs the result (t3-alpha-deploy).
+#
+# Mirrors upstream's release job: align every package.json to the release
+# version so the server reports it too, build, then restore the manifests.
+#
+# The zip is then re-signed in place with a stable identity. An ad-hoc build's
+# designated requirement is its own cdhash, so TCC grants, keychain ACLs and
+# Little Snitch rules never carried over to the next build.
+#
+# Usage: t3-alpha-build <version>   # -> release/T3-Code-<version>-arm64.zip
+
+set -euo pipefail
+
+VERSION="${1:?usage: t3-alpha-build <version>}"
+SIGN_IDENTITY="${T3_ALPHA_SIGN_IDENTITY:-Apple Development: Emanuel Franzen (T4J48V44Q2)}"
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+ZIP="$REPO/release/T3-Code-$VERSION-arm64.zip"
+cd "$REPO"
+# The artifact build spawns `vp`, which only exists in the repo's node_modules.
+export PATH="$REPO/node_modules/.bin:$PATH"
+unset ELECTRON_RUN_AS_NODE
+
+if ! git diff --quiet HEAD; then
+  echo "error: $REPO has uncommitted changes; build from a clean checkout." >&2
+  exit 1
+fi
+
+STAGE="$(mktemp -d /tmp/t3-alpha-build.XXXXXX)"
+# The manifests were clean above, so any package.json diff is the version bump.
+trap 'rm -rf "$STAGE"; git -C "$REPO" diff --name-only -z -- "*package.json" | xargs -0 git -C "$REPO" checkout --' EXIT
+
+vp i
+node scripts/update-release-package-versions.ts "$VERSION"
+node scripts/build-desktop-artifact.ts --platform mac --target zip --arch arm64 --build-version "$VERSION"
+
+# Inside-out: every Mach-O file (native modules and helpers are not all +x),
+# then nested bundles deepest first, then the app itself. The build has no
+# hardened runtime or entitlements to carry over, but preserve them if it ever does.
+sign_app() { # <app>
+  local app="$1" f
+  local opts=(--force --timestamp=none --preserve-metadata=identifier,entitlements --sign "$SIGN_IDENTITY")
+  while IFS= read -r f; do
+    codesign "${opts[@]}" "$f"
+  done < <(find "$app/Contents" -type f -print0 | xargs -0 file | awk -F': ' '/Mach-O/ { print $1 }')
+  while IFS= read -r f; do
+    codesign "${opts[@]}" "$f"
+  done < <(find "$app/Contents" -type d \( -name '*.framework' -o -name '*.app' \) | awk '{ print gsub("/", "/") "\t" $0 }' | sort -rn | cut -f2-)
+  codesign "${opts[@]}" "$app"
+  codesign --verify --deep --strict "$app"
+}
+
+ditto -x -k "$ZIP" "$STAGE"
+APP="$(find "$STAGE" -maxdepth 1 -name '*.app' | head -1)"
+sign_app "$APP" 2> >(grep -v 'replacing existing signature' >&2)
+rm -f "$ZIP" "$ZIP.blockmap"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+
+echo "Built and signed $ZIP"
+codesign -d -r- "$APP" 2>&1 | tail -1
