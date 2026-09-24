@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { CircleAlertIcon, XIcon } from "lucide-react";
@@ -35,9 +35,14 @@ export function isThreadErrorBannerDismissedForSession(bannerKey: string | null)
 
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
+  summary,
+  action,
   onDismiss,
 }: {
   error: string | null;
+  /** Shown instead of the error; the full error stays in the tooltip. */
+  summary?: string;
+  action?: ReactNode;
   onDismiss?: () => void;
 }) {
   if (!error) return null;
@@ -47,17 +52,22 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
         <CircleAlertIcon />
         <AlertDescription>
           <Tooltip>
-            <TooltipTrigger render={<div className="line-clamp-3" />}>{error}</TooltipTrigger>
+            <TooltipTrigger render={<div className="line-clamp-3" />}>
+              {summary ?? error}
+            </TooltipTrigger>
             <TooltipPopup side="top" className="whitespace-pre-wrap">
               {error}
             </TooltipPopup>
           </Tooltip>
         </AlertDescription>
-        {onDismiss && (
+        {(action || onDismiss) && (
           <AlertAction>
-            <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
-              <XIcon className="text-destructive" />
-            </Button>
+            {action}
+            {onDismiss && (
+              <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
+                <XIcon className="text-destructive" />
+              </Button>
+            )}
           </AlertAction>
         )}
       </Alert>

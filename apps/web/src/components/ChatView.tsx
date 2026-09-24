@@ -398,6 +398,7 @@ import {
   shouldShowThreadErrorBanner,
   ThreadErrorBanner,
 } from "./chat/ThreadErrorBanner";
+import { UsageLimitErrorBanner, UsageLimitResumeBanner } from "./chat/UsageLimitResumeBanner";
 import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import {
@@ -1932,6 +1933,18 @@ export default function ChatView(props: ChatViewProps) {
   )
     ? threadError
     : null;
+  const activeUsageLimit = activeServerThread?.usageLimit;
+  const usageLimitResume = useMemo(
+    () =>
+      activeServerThread && activeUsageLimit?.resetsAt
+        ? {
+            environmentId: routeThreadRef.environmentId,
+            threadId: activeServerThread.id,
+            usageLimit: { ...activeUsageLimit, resetsAt: activeUsageLimit.resetsAt },
+          }
+        : null,
+    [activeServerThread, activeUsageLimit, routeThreadRef.environmentId],
+  );
   // Dismissing only mutates the session-scoped mask set, which does not
   // trigger a render on its own; setThreadError(null) can also bail when the
   // local shadow is already empty and the banner is driven purely by
@@ -9922,14 +9935,29 @@ export default function ChatView(props: ChatViewProps) {
                 onDismiss={() => setDismissedProviderStatusBannerKey(providerStatusBannerKey)}
                 onOpenProviderSetup={openProviderSetup}
               />
-              <ThreadErrorBanner
-                error={visibleThreadError}
-                onDismiss={() => {
-                  setThreadError(activeThread.id, null);
-                  dismissThreadErrorBannerForSession(threadErrorBannerKey);
-                  setThreadErrorBannerDismissTick((tick) => tick + 1);
-                }}
-              />
+              {usageLimitResume && visibleThreadError ? (
+                <UsageLimitErrorBanner
+                  {...usageLimitResume}
+                  error={visibleThreadError}
+                  onDismiss={() => {
+                    setThreadError(activeThread.id, null);
+                    dismissThreadErrorBannerForSession(threadErrorBannerKey);
+                    setThreadErrorBannerDismissTick((tick) => tick + 1);
+                  }}
+                />
+              ) : (
+                <ThreadErrorBanner
+                  error={visibleThreadError}
+                  onDismiss={() => {
+                    setThreadError(activeThread.id, null);
+                    dismissThreadErrorBannerForSession(threadErrorBannerKey);
+                    setThreadErrorBannerDismissTick((tick) => tick + 1);
+                  }}
+                />
+              )}
+              {usageLimitResume && !visibleThreadError && (
+                <UsageLimitResumeBanner {...usageLimitResume} />
+              )}
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">

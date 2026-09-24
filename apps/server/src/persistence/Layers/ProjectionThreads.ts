@@ -12,7 +12,12 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection, ThreadLinkedPullRequest, ThreadTitleState } from "@t3tools/contracts";
+import {
+  ModelSelection,
+  ThreadLinkedPullRequest,
+  ThreadTitleState,
+  ThreadUsageLimit,
+} from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
@@ -20,6 +25,7 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
     titleState: Schema.NullOr(Schema.fromJsonString(ThreadTitleState)),
     linkedPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
     branchPullRequest: Schema.NullOr(Schema.fromJsonString(ThreadLinkedPullRequest)),
+    usageLimit: Schema.NullOr(Schema.fromJsonString(ThreadUsageLimit)),
   }),
 );
 
@@ -51,6 +57,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           unsettled_at,
           snoozed_until,
           snoozed_at,
+          usage_limit_json,
           pinned_at,
           pin_order_key,
           active_order_key,
@@ -83,6 +90,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.unsettledAt},
           ${row.snoozedUntil},
           ${row.snoozedAt},
+          ${row.usageLimit == null ? null : JSON.stringify(row.usageLimit)},
           ${row.pinnedAt},
           ${row.pinOrderKey ?? null},
           ${row.activeOrderKey ?? null},
@@ -115,6 +123,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           unsettled_at = excluded.unsettled_at,
           snoozed_until = excluded.snoozed_until,
           snoozed_at = excluded.snoozed_at,
+          usage_limit_json = excluded.usage_limit_json,
           pinned_at = excluded.pinned_at,
           pin_order_key = excluded.pin_order_key,
           active_order_key = excluded.active_order_key,
@@ -154,6 +163,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           unsettled_at AS "unsettledAt",
           snoozed_until AS "snoozedUntil",
           snoozed_at AS "snoozedAt",
+          usage_limit_json AS "usageLimit",
           pinned_at AS "pinnedAt",
           pin_order_key AS "pinOrderKey",
           active_order_key AS "activeOrderKey",

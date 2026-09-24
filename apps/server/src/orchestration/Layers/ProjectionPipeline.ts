@@ -630,6 +630,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             unsettledAt: null,
             snoozedUntil: null,
             snoozedAt: null,
+            usageLimit: null,
             pinnedAt: null,
             pinOrderKey: null,
             activeOrderKey: null,
@@ -744,6 +745,35 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             snoozedUntil: null,
             snoozedAt: null,
             updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "thread.usage-limit-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            usageLimit: event.payload.usageLimit,
+          });
+          return;
+        }
+
+        case "thread.auto-resume-set": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          const usageLimit = Option.isSome(existingRow) ? existingRow.value.usageLimit : null;
+          if (Option.isNone(existingRow) || usageLimit == null) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            usageLimit: { ...usageLimit, resumeScheduled: event.payload.scheduled },
           });
           return;
         }

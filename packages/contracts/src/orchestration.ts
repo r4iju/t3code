@@ -790,6 +790,19 @@ export const ThreadPullRequestLink = Schema.Struct({
 });
 export type ThreadPullRequestLink = typeof ThreadPullRequestLink.Type;
 
+/**
+ * A provider usage limit stopped this thread's latest turn. `resetsAt` is null
+ * when the provider reported no reset time; such a stop cannot be resumed on a
+ * timer. `resumeScheduled` asks the server to send the configured resume
+ * message once `resetsAt` passes. Cleared by the next turn start.
+ */
+export const ThreadUsageLimit = Schema.Struct({
+  reachedAt: IsoDateTime,
+  resetsAt: Schema.NullOr(IsoDateTime),
+  resumeScheduled: Schema.Boolean,
+});
+export type ThreadUsageLimit = typeof ThreadUsageLimit.Type;
+
 export const OrchestrationThread = Schema.Struct({
   id: ThreadId,
   projectId: ProjectId,
@@ -826,6 +839,8 @@ export const OrchestrationThread = Schema.Struct({
   // Optional so payloads from pre-snooze servers still decode.
   snoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  // Optional so payloads from pre-auto-resume servers still decode.
+  usageLimit: Schema.optional(Schema.NullOr(ThreadUsageLimit)),
   // Active pinned threads render in the pinned block. Settled and snoozed
   // threads remain in their respective shelves even when pinned.
   // Optional so payloads from pre-pinning servers still decode.
@@ -905,6 +920,7 @@ export const OrchestrationThreadShell = Schema.Struct({
   unsettledAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedUntil: Schema.optional(Schema.NullOr(IsoDateTime)),
   snoozedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+  usageLimit: Schema.optional(Schema.NullOr(ThreadUsageLimit)),
   pinnedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1191,6 +1207,13 @@ const ThreadUnsnoozeCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
+const ThreadAutoResumeSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.auto-resume.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  scheduled: Schema.Boolean,
+});
+
 const ThreadPinCommand = Schema.Struct({
   type: Schema.Literal("thread.pin"),
   commandId: CommandId,
@@ -1423,6 +1446,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
+  ThreadAutoResumeSetCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
@@ -1456,6 +1480,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
+  ThreadAutoResumeSetCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
@@ -1643,7 +1668,19 @@ const ThreadPullRequestLinkSyncCommand = Schema.Struct({
   stack: Schema.NullOr(ThreadPullRequestStack),
 });
 
+const ThreadUsageLimitSetCommand = Schema.Struct({
+  type: Schema.Literal("thread.usage-limit.set"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  // Null records that the limit no longer blocks the thread.
+  usageLimit: Schema.NullOr(
+    Schema.Struct({ reachedAt: IsoDateTime, resetsAt: Schema.NullOr(IsoDateTime) }),
+  ),
+  createdAt: IsoDateTime,
+});
+
 const InternalOrchestrationCommand = Schema.Union([
+  ThreadUsageLimitSetCommand,
   ThreadAutoSettleCommand,
   ThreadPullRequestSyncCommand,
   ThreadPullRequestLinkSyncCommand,
@@ -1684,6 +1721,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.unsettled",
   "thread.snoozed",
   "thread.unsnoozed",
+  "thread.usage-limit-set",
+  "thread.auto-resume-set",
   "thread.pinned",
   "thread.unpinned",
   "thread.pin-reordered",
@@ -1803,6 +1842,16 @@ export const ThreadUnsnoozedPayload = Schema.Struct({
   // derive them from snoozedUntil passing.
   reason: Schema.Literals(["user", "activity"]),
   updatedAt: IsoDateTime,
+});
+
+export const ThreadUsageLimitSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  usageLimit: Schema.NullOr(ThreadUsageLimit),
+});
+
+export const ThreadAutoResumeSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  scheduled: Schema.Boolean,
 });
 
 export const ThreadPinnedPayload = Schema.Struct({
@@ -2073,6 +2122,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.unsnoozed"),
     payload: ThreadUnsnoozedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.usage-limit-set"),
+    payload: ThreadUsageLimitSetPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.auto-resume-set"),
+    payload: ThreadAutoResumeSetPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
