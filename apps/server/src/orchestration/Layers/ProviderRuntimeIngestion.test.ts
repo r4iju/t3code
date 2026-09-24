@@ -1439,6 +1439,62 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("keeps a usage limit through the limit notice and clears it once work resumes after the reset", async () => {
+    const harness = await createHarness();
+    const limitedAt = "2026-01-01T00:00:00.000Z";
+    const resetsAt = "2026-01-01T01:00:00.000Z";
+    const emitAssistantText = (id: string, createdAt: string) => {
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId(`evt-${id}-delta`),
+        provider: ProviderDriverKind.make("claudeAgent"),
+        createdAt,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-2"),
+        itemId: asItemId(id),
+        payload: { streamKind: "assistant_text", delta: "text" },
+      });
+      harness.emit({
+        type: "item.completed",
+        eventId: asEventId(`evt-${id}-completed`),
+        provider: ProviderDriverKind.make("claudeAgent"),
+        createdAt,
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-2"),
+        itemId: asItemId(id),
+        payload: { itemType: "assistant_message", status: "completed" },
+      });
+    };
+
+    harness.emit({
+      type: "turn.usage-limited",
+      eventId: asEventId("evt-usage-limited"),
+      provider: ProviderDriverKind.make("claudeAgent"),
+      createdAt: limitedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-2"),
+      payload: { resetsAt },
+    });
+    // Claude streams its "You've hit your session limit" notice right after the limit.
+    emitAssistantText("limit-notice", limitedAt);
+    const limited = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:limit-notice" && !message.streaming,
+      ),
+    );
+    expect(limited.usageLimit?.resetsAt).toBe(resetsAt);
+
+    emitAssistantText("resumed-work", "2026-01-01T01:00:30.000Z");
+    const resumed = await waitForThread(harness.readModel, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:resumed-work" && !message.streaming,
+      ),
+    );
+    expect(resumed.usageLimit ?? null).toBeNull();
+  });
+
   it("streams reasoning deltas into a finalized reasoning message", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";

@@ -1973,13 +1973,18 @@ const make = Effect.gen(function* () {
         });
       } else if (
         thread.usageLimit != null &&
-        ((event.type === "content.delta" && event.payload.streamKind === "assistant_text") ||
+        // Claude streams its limit notice as assistant text, so only output
+        // after the reset shows a parked turn carrying on.
+        ((event.type === "content.delta" &&
+          event.payload.streamKind === "assistant_text" &&
+          thread.usageLimit.resetsAt !== null &&
+          Date.parse(now) >= Date.parse(thread.usageLimit.resetsAt)) ||
           (event.type === "turn.completed" &&
             shouldApplyThreadLifecycle &&
             normalizeRuntimeTurnState(event.payload.state) === "completed"))
       ) {
-        // A parked turn the provider carried on by itself no longer needs a resume,
-        // and must not be interrupted by one.
+        // A parked turn the provider carried on by itself no longer needs a
+        // resume, and must not be interrupted by one.
         yield* orchestrationEngine.dispatch({
           type: "thread.usage-limit.set",
           commandId: yield* providerCommandId(event, "usage-limit-clear"),
