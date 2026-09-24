@@ -16,6 +16,7 @@ import {
   RuntimeMode,
   ThreadLinkedPullRequest,
   ThreadTitleState,
+  ThreadUsageLimit,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -47,6 +48,7 @@ export const ProjectionThread = Schema.Struct({
   unsettledAt: Schema.NullOr(IsoDateTime),
   snoozedUntil: Schema.NullOr(IsoDateTime),
   snoozedAt: Schema.NullOr(IsoDateTime),
+  usageLimit: Schema.optional(Schema.NullOr(ThreadUsageLimit)),
   pinnedAt: Schema.NullOr(IsoDateTime),
   pinOrderKey: Schema.optional(Schema.NullOr(Schema.String)),
   activeOrderKey: Schema.optional(Schema.NullOr(Schema.String)),

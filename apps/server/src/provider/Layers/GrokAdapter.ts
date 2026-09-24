@@ -76,6 +76,7 @@ import {
   extractGrokPlanMarkdownFromToolCallData,
   extractXAiAskUserQuestions,
   extractXAiExitPlanMarkdown,
+  isXAiUsageLimitError,
   makeXAiAskUserQuestionCancelledResponse,
   makeXAiAskUserQuestionResponse,
   makeXAiExitPlanModeCapturedResponse,
@@ -1823,7 +1824,23 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
               Ref.set(
                 promptFailureMessageRef,
                 mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error).message,
-              ).pipe(Effect.andThen(prepared.acp.drainEvents)),
+              ).pipe(
+                Effect.andThen(
+                  isXAiUsageLimitError(error)
+                    ? Effect.flatMap(makeEventStamp(), (stamp) =>
+                        offerRuntimeEvent({
+                          type: "turn.usage-limited",
+                          ...stamp,
+                          provider: PROVIDER,
+                          threadId: input.threadId,
+                          turnId: prepared.turnId,
+                          payload: {},
+                        }),
+                      ).pipe(Effect.ignore)
+                    : Effect.void,
+                ),
+                Effect.andThen(prepared.acp.drainEvents),
+              ),
             ),
             Effect.mapError((error) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),

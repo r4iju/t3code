@@ -39,6 +39,7 @@ export type SettleThreadInput = CommandInput<"thread.settle">;
 export type UnsettleThreadInput = CommandInput<"thread.unsettle">;
 export type SnoozeThreadInput = CommandInput<"thread.snooze">;
 export type UnsnoozeThreadInput = CommandInput<"thread.unsnooze">;
+export type SetThreadAutoResumeInput = CommandInput<"thread.auto-resume.set">;
 export type PinThreadInput = CommandInput<"thread.pin">;
 export type UnpinThreadInput = CommandInput<"thread.unpin">;
 export type ReorderPinnedThreadInput = CommandInput<"thread.pin.reorder">;
@@ -202,6 +203,16 @@ export const unsnoozeThread: (input: UnsnoozeThreadInput) => CommandEffect = Eff
   return yield* dispatch({
     ...input,
     type: "thread.unsnooze",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const setThreadAutoResume: (input: SetThreadAutoResumeInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.setThreadAutoResume",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "thread.auto-resume.set",
     commandId: yield* commandId(input),
   });
 });

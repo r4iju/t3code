@@ -32,6 +32,13 @@ const completedXAiPromptIdLimit = 128;
 const xAiStopReasonMissingMetaKey = "xAiStopReasonMissing";
 const xAiRateLimitedErrorCode = -32003;
 
+const isAcpRequestError = Schema.is(EffectAcpErrors.AcpRequestError);
+
+/** Whether a failed Grok prompt stopped on the account's usage limit. */
+export function isXAiUsageLimitError(error: unknown): boolean {
+  return isAcpRequestError(error) && error.code === xAiRateLimitedErrorCode;
+}
+
 const XAiAskUserQuestionOption = Schema.Struct({
   label: Schema.String,
   description: Schema.optional(Schema.String),

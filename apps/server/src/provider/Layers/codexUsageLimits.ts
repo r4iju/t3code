@@ -209,6 +209,31 @@ function codexUsageLimitNextStep(rateLimitReachedType: string | null | undefined
   }
 }
 
+/** The exhausted window that has yet to reset, latest first, as of `atIso`. */
+function codexBlockingWindow(snapshot: CodexRateLimitSnapshot | undefined, atIso: string) {
+  const atMs = Date.parse(atIso);
+  const windows = snapshot && Number.isFinite(atMs) ? codexRateLimitsToWindows(snapshot) : [];
+  let blocking:
+    | { readonly kind: string; readonly resetsAt: string; readonly waitMs: number }
+    | undefined;
+  for (const window of windows) {
+    if (window.usedPercent < 100 || !window.resetsAt) continue;
+    const resetMs = Date.parse(window.resetsAt);
+    if (!Number.isFinite(resetMs) || resetMs <= atMs) continue;
+    if (blocking && resetMs - atMs <= blocking.waitMs) continue;
+    blocking = { kind: window.kind, resetsAt: window.resetsAt, waitMs: resetMs - atMs };
+  }
+  return blocking;
+}
+
+/** When the limit that stopped a turn at `atIso` resets, if the snapshot says. */
+export function codexUsageLimitResetsAt(
+  snapshot: CodexRateLimitSnapshot | undefined,
+  atIso: string,
+): string | undefined {
+  return codexBlockingWindow(snapshot, atIso)?.resetsAt;
+}
+
 /**
  * The message a usage-limit stop shows instead of the provider sentence, which
  * on a Business workspace blames credits for a window that simply ran out. The
@@ -219,16 +244,9 @@ export function codexUsageLimitMessage(
   snapshot: CodexRateLimitSnapshot | undefined,
   atIso: string,
 ): string {
-  const atMs = Date.parse(atIso);
-  const windows = snapshot && Number.isFinite(atMs) ? codexRateLimitsToWindows(snapshot) : [];
-  let reset = "";
-  let latestResetMs = Number.NEGATIVE_INFINITY;
-  for (const window of windows) {
-    if (window.usedPercent < 100 || !window.resetsAt) continue;
-    const resetMs = Date.parse(window.resetsAt);
-    if (!Number.isFinite(resetMs) || resetMs <= atMs || resetMs <= latestResetMs) continue;
-    latestResetMs = resetMs;
-    reset = ` The ${window.kind} limit resets in ${formatCodexUsageLimitWait(resetMs - atMs)}.`;
-  }
+  const blocking = codexBlockingWindow(snapshot, atIso);
+  const reset = blocking
+    ? ` The ${blocking.kind} limit resets in ${formatCodexUsageLimitWait(blocking.waitMs)}.`
+    : "";
   return `Codex usage limit reached.${reset}${codexUsageLimitNextStep(snapshot?.rateLimitReachedType)}`;
 }

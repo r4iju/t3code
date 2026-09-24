@@ -54,6 +54,8 @@ import {
 import { projectActivityPayload } from "../ActivityPayloadProjection.ts";
 import { forkParked } from "../../serverActivation.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ProviderRegistry } from "../../provider/Services/ProviderRegistry.ts";
+import { latestExhaustedWindowResetAt } from "../../provider/providerUsageLimits.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { canReplaceThreadTitle } from "../threadTitles.ts";
 
@@ -1029,6 +1031,7 @@ const make = Effect.gen(function* () {
   const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
   const serverSettingsService = yield* ServerSettingsService;
   const checkpointStore = yield* CheckpointStore.CheckpointStore;
+  const providerRegistry = yield* Effect.serviceOption(ProviderRegistry);
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
@@ -1755,6 +1758,22 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const resolveUsageLimitResetsAt = (
+    event: Extract<ProviderRuntimeEvent, { type: "turn.usage-limited" }>,
+  ) =>
+    Effect.gen(function* () {
+      const reported = event.payload.resetsAt;
+      if (reported !== undefined && Date.parse(reported) > Date.parse(event.createdAt)) {
+        return reported;
+      }
+      if (Option.isNone(providerRegistry) || event.providerInstanceId === undefined) {
+        return null;
+      }
+      const providers = yield* providerRegistry.value.getProviders;
+      const provider = providers.find((entry) => entry.instanceId === event.providerInstanceId);
+      return latestExhaustedWindowResetAt(provider?.usageLimits, event.createdAt) ?? null;
+    });
+
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
       if (
@@ -1932,6 +1951,33 @@ const make = Effect.gen(function* () {
             createdAt: now,
           });
         }
+      }
+
+      if (event.type === "turn.usage-limited") {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.usage-limit.set",
+          commandId: yield* providerCommandId(event, "usage-limit-set"),
+          threadId: thread.id,
+          usageLimit: {
+            reachedAt: thread.usageLimit?.reachedAt ?? now,
+            resetsAt: yield* resolveUsageLimitResetsAt(event),
+          },
+          createdAt: now,
+        });
+      } else if (
+        event.type === "turn.completed" &&
+        shouldApplyThreadLifecycle &&
+        normalizeRuntimeTurnState(event.payload.state) === "completed" &&
+        thread.usageLimit != null
+      ) {
+        // A parked turn the provider carried on by itself no longer needs a resume.
+        yield* orchestrationEngine.dispatch({
+          type: "thread.usage-limit.set",
+          commandId: yield* providerCommandId(event, "usage-limit-clear"),
+          threadId: thread.id,
+          usageLimit: null,
+          createdAt: now,
+        });
       }
 
       const assistantDelta =

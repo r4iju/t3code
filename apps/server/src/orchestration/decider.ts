@@ -725,6 +725,66 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.usage-limit.set": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      // A limit re-reported for the same stop (a parked Claude turn re-fires
+      // while its wait shrinks) keeps the user's resume choice.
+      const usageLimit =
+        command.usageLimit === null
+          ? null
+          : {
+              ...command.usageLimit,
+              resumeScheduled: thread.usageLimit?.resumeScheduled ?? false,
+            };
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.usage-limit-set",
+        payload: {
+          threadId: command.threadId,
+          usageLimit,
+        },
+      };
+    }
+
+    case "thread.auto-resume.set": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (command.scheduled && thread.usageLimit?.resetsAt == null) {
+        return yield* Effect.fail(
+          new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `thread ${command.threadId} has no usage limit with a known reset time to resume after`,
+          }),
+        );
+      }
+      const occurredAt = yield* nowIso;
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "thread.auto-resume-set",
+        payload: {
+          threadId: command.threadId,
+          scheduled: command.scheduled,
+        },
+      };
+    }
+
     case "thread.pin": {
       const thread = yield* requireThreadNotArchived({
         readModel,
@@ -1491,6 +1551,22 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: command.threadId,
             reason: "activity",
             updatedAt: command.createdAt,
+          },
+        });
+      }
+      // Any new turn, manual or the scheduled resume itself, spends the stop.
+      if (targetThread.usageLimit != null) {
+        lifecycleResetEvents.push({
+          ...(yield* withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.threadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          })),
+          type: "thread.usage-limit-set",
+          payload: {
+            threadId: command.threadId,
+            usageLimit: null,
           },
         });
       }
