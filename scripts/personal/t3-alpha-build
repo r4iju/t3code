@@ -10,15 +10,31 @@
 # designated requirement is its own cdhash, so TCC grants, keychain ACLs and
 # Little Snitch rules never carried over to the next build.
 #
-# Usage: t3-alpha-build <version>   # -> release/T3-Code-<version>-arm64.zip
+# Each build is tagged `desktop-v<version>` on origin once it is signed, so the
+# tags record which commit every Mac runs. Without a version the build takes the
+# next patch after the latest tag.
+#
+# Usage: t3-alpha-build [version]   # -> release/T3-Code-<version>-arm64.zip
 
 set -euo pipefail
 
-VERSION="${1:?usage: t3-alpha-build <version>}"
 SIGN_IDENTITY="${T3_ALPHA_SIGN_IDENTITY:-Apple Development: Emanuel Franzen (T4J48V44Q2)}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-ZIP="$REPO/release/T3-Code-$VERSION-arm64.zip"
 cd "$REPO"
+git fetch -q origin 'refs/tags/desktop-v*:refs/tags/desktop-v*'
+if [[ -n "${1:-}" ]]; then
+  VERSION="$1"
+else
+  LAST="$(git tag -l 'desktop-v*' --sort=-v:refname | head -1)"
+  [[ -n "$LAST" ]] || { echo "error: no desktop-v* tag yet; pass a version." >&2; exit 1; }
+  LAST="${LAST#desktop-v}"
+  VERSION="${LAST%.*}.$((${LAST##*.} + 1))"
+fi
+if git rev-parse -q --verify "refs/tags/desktop-v$VERSION" >/dev/null; then
+  echo "error: desktop-v$VERSION is already tagged." >&2
+  exit 1
+fi
+ZIP="$REPO/release/T3-Code-$VERSION-arm64.zip"
 # The artifact build spawns `vp`, which only exists in the repo's node_modules.
 export PATH="$REPO/node_modules/.bin:$PATH"
 unset ELECTRON_RUN_AS_NODE
@@ -57,6 +73,9 @@ APP="$(find "$STAGE" -maxdepth 1 -name '*.app' | head -1)"
 sign_app "$APP" 2> >(grep -v 'replacing existing signature' >&2)
 rm -f "$ZIP" "$ZIP.blockmap"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+
+git tag "desktop-v$VERSION" HEAD
+git push -q origin "desktop-v$VERSION"
 
 echo "Built and signed $ZIP"
 codesign -d -r- "$APP" 2>&1 | tail -1
