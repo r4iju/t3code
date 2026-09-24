@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { CircleAlertIcon, XIcon } from "lucide-react";
@@ -35,9 +35,11 @@ export function isThreadErrorBannerDismissedForSession(bannerKey: string | null)
 
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
+  action,
   onDismiss,
 }: {
   error: string | null;
+  action?: ReactNode;
   onDismiss?: () => void;
 }) {
   if (!error) return null;
@@ -53,11 +55,14 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             </TooltipPopup>
           </Tooltip>
         </AlertDescription>
-        {onDismiss && (
+        {(action || onDismiss) && (
           <AlertAction>
-            <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
-              <XIcon className="text-destructive" />
-            </Button>
+            {action}
+            {onDismiss && (
+              <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
+                <XIcon className="text-destructive" />
+              </Button>
+            )}
           </AlertAction>
         )}
       </Alert>
