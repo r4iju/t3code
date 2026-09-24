@@ -1,94 +1,106 @@
-# Release pipeline: personal T3 Code mobile builds
+# Release runbook: personal T3 Code
 
-> Ported 2026-07-25 from the (archived) planning repo [r4iju/t3-code](https://github.com/r4iju/t3-code);
-> this copy is now the living runbook. Historical decision links below point at that repo's issues.
+How this fork ships: sync upstream, build and deploy the desktop app to every Mac, build and
+submit the mobile apps. Originally ported 2026-07-25 from the archived planning repo
+[r4iju/t3-code](https://github.com/r4iju/t3-code); historical decision links point there.
 
-Spec for [issue #6](https://github.com/r4iju/t3-code/issues/6). Decisions settled on the
-[wayfinder map](https://github.com/r4iju/t3-code/issues/1) on 2026-07-23: v1 is upstream's
-`apps/mobile` as-is (#5), fork delta stays env/config-only with ad-hoc `upstream/main` merges (#8),
-distribution is personal/internal only, connectivity is direct LAN only.
+**The fork ships upstream's app; we ship the pipeline.** The delta stays env/config-only plus
+additive files (`docs/personal/`, `scripts/personal/`). Upstream files are edited only when
+unavoidable. Before each release, review the exit-path register in
+[contributing-upstream.md](./contributing-upstream.md): every feature delta must be moving
+toward upstream or have a written reason to stay.
 
-## Principles
+## Machines
 
-- **The fork ships upstream's app; we ship the pipeline.** No feature delta, so the pipeline is the
-  product of this effort.
-- **Env/config-only delta.** Pipeline config lives in EAS environment variables, additive files, and
-  this repo's docs — upstream files are edited only when unavoidable (e.g. if `app.config.ts` lacks
-  an override hook for bundle identity).
-- **decent-measure is the style reference, not a template to copy.** Where its choices fight the
-  env/config-only rule (local credentials + fastlane), we deviate deliberately.
+| Machine                  | SSH                      | Role                                               |
+| ------------------------ | ------------------------ | -------------------------------------------------- |
+| studio (Mac Studio)      | —                        | Builds and signs releases; T3 Code host            |
+| matebook                 | `emanuel@matebook.lan`   | T3 Code host                                       |
+| sm-em (work MacBook Pro) | `emanuelfranzen@Mac.lan` | T3 Code host                                       |
+| iPhone / Android         | —                        | Mobile clients: TestFlight / Play internal testing |
 
-## Identity
+Every Mac runs "T3 Code (Alpha)" from `/Applications`, built from this fork. A LAN server is
+the desktop app with Settings → Connections → Network access on (`0.0.0.0:3773`, pairing QR).
+Pairing tokens expire in ~5 minutes; mint one right before pairing (`t3 auth pairing create`).
 
-- Own bundle/application ID per variant, own EAS project, own App Store Connect record — upstream's
-  `com.t3tools.t3code.*` IDs stay untouched for clean upstream merges:
-  - iOS/Android production: `com.raijustudios.t3code`
-  - Development variant keeps upstream's dev ID locally (dev builds are never distributed).
-- Apple team `C7X9BCC7LP` (same as decent-measure). App name on TestFlight: "T3 Code (personal)".
-- Prefer setting identity via EAS env vars / `APP_VARIANT` hooks if upstream's `app.config.ts`
-  supports it; otherwise a minimal, well-marked edit in `app.config.ts` (allowed "when unavoidable").
+## 1. Sync upstream
 
-## Build & distribute
-
-| Platform | Profile               | Output | Distribution                                    |
-| -------- | --------------------- | ------ | ----------------------------------------------- |
-| iOS      | upstream `production` | .ipa   | `eas submit` → **TestFlight internal**          |
-| Android  | upstream `production` | .aab   | `eas submit` → **Google Play internal testing** |
-
-> **Decision change (2026-07-23):** Android originally shipped as a preview APK via EAS internal
-> link. Changed to match decent-measure: production AAB submitted to the Play internal testing
-> track with the same Play service account (`barbellry-…json`). Requires a Play Console app record
-> for `com.raijustudios.t3code` (manual — Play has no app-creation API) and the fork's
-> `T3CODE_ANDROID_PACKAGE` env hook (upstream has no Android identity override).
-
-- **EAS cloud is the default builder**; the free tier covers occasional personal builds.
-  Local `eas build --local` is the documented fallback (needs Xcode 26.1+ — ticket #9 — and
-  JDK 17 + `ANDROID_HOME`; see friction log on
-  [issue #3](https://github.com/r4iju/t3-code/issues/3)).
-- **Credentials: EAS-managed (remote)** for both platforms. This deviates from decent-measure's
-  local-credentials + fastlane setup on purpose — remote credentials mean zero credential files in
-  the fork, consistent with env/config-only. Submit credentials (ASC API key for iOS, Play service
-  account key for Android, both shared with decent-measure) live in the gitignored
-  `apps/mobile/credentials/` and are referenced by the `personal` submit profile — nothing secret
-  is committed.
-- **Versioning:** follow upstream's app version (their `appVersion` runtime policy); build numbers
-  auto-increment via EAS remote version source.
-- **T3 Connect env vars stay unset.** LAN-only scope; cloud UI stays disabled in our builds.
-
-## Release ritual
+Direct pushes to `main` are blocked, so a sync is a PR:
 
 ```bash
-cd ~/code/t3code
-git fetch upstream && git merge upstream/main   # ad-hoc sync (#8)
-cd apps/mobile
-# T3CODE_EAS_OWNER / T3CODE_EAS_PROJECT_ID / T3CODE_ANDROID_PACKAGE env vars required locally
-vp run eas:ios:prod                              # → .ipa
-vp run eas:android:prod                          # → .aab
-eas submit -p ios --latest --profile personal    # → TestFlight internal
-eas submit -p android --latest --profile personal # → Play internal testing
+git -C ~/code/t3code fetch upstream
+git -C ~/code/t3code worktree add ~/code/t3code-wt-sync -b sync/upstream-$(date +%Y%m%d) origin/main
+cd ~/code/t3code-wt-sync && git merge upstream/main && vp i
+git push -u origin HEAD && gh pr create --fill && gh pr merge --merge
+git -C ~/code/t3code pull --ff-only
+git -C ~/code/t3code worktree remove ~/code/t3code-wt-sync
 ```
 
-No CI initially — releases are manual and occasional. If cadence grows, lift upstream's
-fingerprint-based EAS workflow (`.github/workflows/mobile-eas-*.yml`) into the fork.
+`gh` resolves to `origin` (`remote.origin.gh-resolved base`); upstream PRs need an explicit
+`--repo pingdotgg/t3code`.
 
-Before each release, review the exit-path register in
-[contributing-upstream.md](./contributing-upstream.md) — every feature delta on this fork
-must be moving toward upstream or have a written reason to stay.
+## 2. Desktop: build, sign, deploy
 
-## Server operations (decided with the map)
+On studio, from a clean `~/code/t3code` on `main`:
 
-The LAN server is the **desktop app with Settings → Connections → Network access toggled on**
-(binds `0.0.0.0:3773`, stable port, built-in pairing QR). No launchd service, no headless `t3 serve`
-for daily use. Device pairing management: `t3 auth` (`pairing create`, `session list/revoke`).
-Pairing tokens expire in ~5 minutes — mint right before pairing a new device.
+```bash
+scripts/personal/t3-alpha-build 0.0.47
+scripts/personal/t3-alpha-deploy release/T3-Code-0.0.47-arm64.zip
+```
 
-## Implementation checklist (post-map execution)
+- **Version:** the next patch after the last deploy. Every package.json is set to it for the
+  build and restored afterwards, so the app and its server report the same version.
+- **Signing:** the build is signed with the Apple Development certificate in studio's keychain.
+  macOS privacy grants (Screen Recording, Accessibility, …), keychain access and Little Snitch
+  rules are tied to that signature, so they carry over between builds. An unsigned build is a
+  new app to all of them; the installer refuses one.
+- **Deploy:** copies the zip and installer to matebook and sm-em over SSH, installs, and waits
+  for each result. Studio goes last because its restart ends any T3 session driving the
+  deploy. Name hosts to deploy to a subset: `… .zip emanuel@matebook.lan local`.
+- **Target Macs must be logged in:** the installer launches the app in the GUI session.
+- **Failures roll back** to the previous bundle automatically. Each Mac logs to
+  `~/Library/Logs/t3-alpha-install.log`; `scripts/personal/t3-alpha-install --status` shows
+  what runs, `--restart` relaunches. Only the latest `.bak-*` bundle is kept.
 
-1. Create the App Store Connect app record for `com.raijustudios.t3code`.
-2. `eas init` in the fork's `apps/mobile` against a personal EAS project; set EAS env vars/secrets
-   (ASC API key; identity overrides if the env hook exists).
-3. First iOS `production` build + submit; install from TestFlight.
-4. Create the Play Console app record for `com.raijustudios.t3code` (manual); first Android
-   `production` AAB build + submit to the internal testing track; install from Play.
-5. Pair both against the desktop app's network endpoint (`http://<lan-ip>:3773`).
-6. Verify local-build fallback once Xcode 26.1+ lands (#9).
+## 3. Mobile: build and submit
+
+Identity is the fork's own (`com.raijustudios.t3code`, Apple team `C7X9BCC7LP`, EAS project
+`@expomozdom/t3-code`); upstream's `com.t3tools.t3code.*` IDs stay untouched. The identity env
+vars live in EAS (production and preview):
+
+```
+T3CODE_EAS_OWNER=expomozdom
+T3CODE_EAS_PROJECT_ID=041ec0cd-429a-40d9-8d00-9fcf196ebb59
+T3CODE_ANDROID_PACKAGE=com.raijustudios.t3code
+T3CODE_IOS_PERSONAL_TEAM=1
+T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.raijustudios.t3code
+```
+
+From `apps/mobile`, logged in to EAS as `expomozdom`:
+
+```bash
+eas build --profile production -p ios --non-interactive --no-wait
+eas build --profile production -p android --non-interactive --no-wait
+eas submit -p ios --latest --profile personal      # → TestFlight internal
+eas submit -p android --latest --profile personal  # → Play internal testing
+```
+
+- EAS cloud builds by default; `eas build --local` is the fallback (Xcode 26.1+, JDK 17 +
+  `ANDROID_HOME`).
+- Credentials are EAS-managed. Submit credentials (ASC API key, Play service account) live in
+  the gitignored `apps/mobile/credentials/`.
+- Version follows upstream's app version; build numbers auto-increment remotely.
+- Do not dispatch `.github/workflows/mobile-eas-production.yml` on the fork: it has no
+  `EXPO_TOKEN` secret and silently no-ops.
+- T3 Connect env vars stay unset: LAN-only scope.
+
+## One-time setup
+
+- **Signing certificate** (studio): "Apple Development: Emanuel Franzen (T4J48V44Q2)" in the
+  login keychain; allow `codesign` access once. A renewed certificate keeps its name, so grants
+  survive renewal. Signing with another identity (`T3_ALPHA_SIGN_IDENTITY`, for example a
+  Developer ID) makes every Mac re-grant permissions once. To build on another Mac, export the
+  certificate with its key as `.p12` and import it there.
+- **First signed install on a Mac:** grant macOS permissions and Little Snitch rules once more;
+  they stick from then on.
+- **SSH:** studio needs key-based SSH to every deploy target.
