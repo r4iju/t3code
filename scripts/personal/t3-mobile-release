@@ -42,6 +42,6 @@ for platform in ios android; do
     --auto-submit-with-profile personal
 done
 
-git tag -f "$TAG" HEAD
+git tag -f -a -m "Mobile release $TAG" "$TAG" HEAD
 git push -qf origin "refs/tags/$TAG"
 echo "QUEUED: iOS and Android builds from $(git rev-parse --short HEAD), tagged $TAG."

@@ -74,7 +74,7 @@ sign_app "$APP" 2> >(grep -v 'replacing existing signature' >&2)
 rm -f "$ZIP" "$ZIP.blockmap"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
-git tag "desktop-v$VERSION" HEAD
+git tag -a -m "T3 Code (Alpha) $VERSION" "desktop-v$VERSION" HEAD
 git push -q origin "desktop-v$VERSION"
 
 echo "Built and signed $ZIP"
