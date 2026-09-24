@@ -45,6 +45,9 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   // One interrupt per stop: a parked turn that ignores it is left to the user.
   const interruptedStops = new Set<string>();
+  // Filled from one full scan at start, then kept current from events, so the
+  // minute tick reads only threads with a pending resume.
+  const scheduledThreadIds = new Set<ThreadId>();
 
   const commandId = (tag: string, threadId: ThreadId) =>
     Effect.map(crypto.randomUUIDv4, (uuid) =>
@@ -79,7 +82,10 @@ export const make = Effect.gen(function* () {
 
   const resume = Effect.fn("UsageLimitResumeReactor.resume")(function* (threadId: ThreadId) {
     const shell = yield* snapshots.getThreadShellById(threadId);
-    if (Option.isNone(shell)) return;
+    if (Option.isNone(shell) || !shell.value.usageLimit?.resumeScheduled) {
+      scheduledThreadIds.delete(threadId);
+      return;
+    }
     const thread = shell.value;
     const now = DateTime.formatIso(yield* DateTime.now);
     const action = resolveResumeAction(thread, now);
@@ -99,6 +105,18 @@ export const make = Effect.gen(function* () {
     }
     interruptedStops.delete(stopKey);
     const settings = yield* settingsService.getSettings;
+    const modelSelection = settings.autoResumeDisablesFastMode
+      ? withoutFastMode(thread.modelSelection)
+      : thread.modelSelection;
+    if (modelSelection !== thread.modelSelection) {
+      // Saved on the thread so fast mode stays off after the resumed turn.
+      yield* engine.dispatch({
+        type: "thread.meta.update",
+        commandId: yield* commandId("fast-mode-off", threadId),
+        threadId,
+        modelSelection,
+      });
+    }
     yield* engine.dispatch({
       type: "thread.turn.start",
       commandId: yield* commandId("send", threadId),
@@ -109,22 +127,22 @@ export const make = Effect.gen(function* () {
         text: autoResumeText(settings.autoResumeMessage),
         attachments: [],
       },
-      modelSelection: settings.autoResumeDisablesFastMode
-        ? withoutFastMode(thread.modelSelection)
-        : thread.modelSelection,
+      modelSelection,
       runtimeMode: thread.runtimeMode,
       interactionMode: thread.interactionMode,
       createdAt: now,
     });
   });
 
-  const sweep = Effect.fn("UsageLimitResumeReactor.sweep")(function* () {
+  const scan = Effect.fn("UsageLimitResumeReactor.scan")(function* () {
     const snapshot = yield* snapshots.getShellSnapshot();
-    yield* Effect.forEach(
-      snapshot.threads.filter((thread) => thread.usageLimit?.resumeScheduled === true),
-      (thread) => resume(thread.id),
-      { discard: true },
-    );
+    for (const thread of snapshot.threads) {
+      if (thread.usageLimit?.resumeScheduled) scheduledThreadIds.add(thread.id);
+    }
+  });
+
+  const sweep = Effect.fn("UsageLimitResumeReactor.sweep")(function* () {
+    yield* Effect.forEach([...scheduledThreadIds], resume, { discard: true });
   });
 
   type Job =
@@ -153,14 +171,22 @@ export const make = Effect.gen(function* () {
   const processEvent = (event: OrchestrationEvent) => {
     switch (event.type) {
       case "thread.usage-limit-set":
-        return event.payload.usageLimit !== null && !event.payload.usageLimit.resumeScheduled
+        // Re-reports of a stop keep its reachedAt, so only a new stop is
+        // auto-scheduled and a Cancel on the current one sticks.
+        return event.payload.usageLimit !== null &&
+          event.payload.usageLimit.reachedAt === event.occurredAt &&
+          !event.payload.usageLimit.resumeScheduled
           ? worker.enqueue({ kind: "auto-schedule", threadId: event.payload.threadId })
           : Effect.void;
       case "thread.auto-resume-set":
-        return event.payload.scheduled
-          ? worker.enqueue({ kind: "resume", threadId: event.payload.threadId })
-          : Effect.void;
+        if (!event.payload.scheduled) {
+          scheduledThreadIds.delete(event.payload.threadId);
+          return Effect.void;
+        }
+        scheduledThreadIds.add(event.payload.threadId);
+        return worker.enqueue({ kind: "resume", threadId: event.payload.threadId });
       case "thread.session-set":
+        if (!scheduledThreadIds.has(event.payload.threadId)) return Effect.void;
         // The interrupted parked turn has settled; the resume can go out now.
         return event.payload.session.status !== "running" &&
           event.payload.session.status !== "starting"
@@ -174,6 +200,11 @@ export const make = Effect.gen(function* () {
     "UsageLimitResumeReactor.start",
   )(function* () {
     const events = yield* engine.subscribeDomainEvents;
+    yield* scan().pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("usage limit resume scan failed", { cause: Cause.pretty(cause) }),
+      ),
+    );
     yield* forkParked(
       Effect.gen(function* () {
         yield* worker.enqueue({ kind: "sweep" });

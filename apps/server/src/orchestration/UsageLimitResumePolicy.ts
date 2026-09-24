@@ -75,7 +75,10 @@ export function autoResumeText(configured: string): string {
 
 /** Claude and Cursor use `fastMode`; Codex also expresses it as the `fast` service tier. */
 export function withoutFastMode(selection: ModelSelection): ModelSelection {
-  if (!selection.options) return selection;
+  const isFast = (option: NonNullable<ModelSelection["options"]>[number]) =>
+    (option.id === "fastMode" && option.value === true) ||
+    (option.id === "serviceTier" && option.value === "fast");
+  if (!selection.options?.some(isFast)) return selection;
   return {
     ...selection,
     options: selection.options.flatMap((option) => {

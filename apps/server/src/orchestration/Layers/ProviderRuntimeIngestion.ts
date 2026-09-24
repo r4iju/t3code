@@ -1758,6 +1758,9 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const laterResetsAt = (current: string | null, next: string | null) =>
+    current !== null && (next === null || Date.parse(current) > Date.parse(next)) ? current : next;
+
   const resolveUsageLimitResetsAt = (
     event: Extract<ProviderRuntimeEvent, { type: "turn.usage-limited" }>,
   ) =>
@@ -1960,17 +1963,23 @@ const make = Effect.gen(function* () {
           threadId: thread.id,
           usageLimit: {
             reachedAt: thread.usageLimit?.reachedAt ?? now,
-            resetsAt: yield* resolveUsageLimitResetsAt(event),
+            // A turn parked on several windows resumes only once the last one reopens.
+            resetsAt: laterResetsAt(
+              thread.usageLimit?.resetsAt ?? null,
+              yield* resolveUsageLimitResetsAt(event),
+            ),
           },
           createdAt: now,
         });
       } else if (
-        event.type === "turn.completed" &&
-        shouldApplyThreadLifecycle &&
-        normalizeRuntimeTurnState(event.payload.state) === "completed" &&
-        thread.usageLimit != null
+        thread.usageLimit != null &&
+        ((event.type === "content.delta" && event.payload.streamKind === "assistant_text") ||
+          (event.type === "turn.completed" &&
+            shouldApplyThreadLifecycle &&
+            normalizeRuntimeTurnState(event.payload.state) === "completed"))
       ) {
-        // A parked turn the provider carried on by itself no longer needs a resume.
+        // A parked turn the provider carried on by itself no longer needs a resume,
+        // and must not be interrupted by one.
         yield* orchestrationEngine.dispatch({
           type: "thread.usage-limit.set",
           commandId: yield* providerCommandId(event, "usage-limit-clear"),

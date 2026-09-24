@@ -138,9 +138,9 @@ describe("withoutFastMode", () => {
     ]);
   });
 
-  it("keeps other service tiers and selections without options", () => {
+  it("returns selections without fast mode unchanged", () => {
     const flex: ModelSelection = { ...base, options: [{ id: "serviceTier", value: "flex" }] };
-    expect(withoutFastMode(flex)).toEqual(flex);
-    expect(withoutFastMode(base)).toEqual(base);
+    expect(withoutFastMode(flex)).toBe(flex);
+    expect(withoutFastMode(base)).toBe(base);
   });
 });

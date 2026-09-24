@@ -5,7 +5,7 @@ import { memo } from "react";
 import { useClientSettings } from "../../hooks/useSettings";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { formatShortTimestamp } from "../../timestampFormat";
+import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 
@@ -24,7 +24,8 @@ export const UsageLimitResumeBanner = memo(function UsageLimitResumeBanner({
   const timestampFormat = useClientSettings(selectTimestampFormat);
   const setAutoResume = useAtomCommand(threadEnvironment.setAutoResume);
   if (!usageLimit?.resetsAt) return null;
-  const resetTime = formatShortTimestamp(usageLimit.resetsAt, timestampFormat);
+  const upcoming = formatUpcomingTimestamp(usageLimit.resetsAt, timestampFormat);
+  const resetTime = upcoming.startsWith("tomorrow") ? upcoming : `at ${upcoming}`;
   const scheduled = usageLimit.resumeScheduled;
   return (
     <div className="pointer-events-auto mx-auto w-fit max-w-[min(48rem,calc(100%-2rem))] pt-3">
@@ -32,8 +33,8 @@ export const UsageLimitResumeBanner = memo(function UsageLimitResumeBanner({
         <AlarmClockIcon />
         <AlertDescription>
           {scheduled
-            ? `Resumes automatically at ${resetTime}.`
-            : `The usage limit resets at ${resetTime}.`}
+            ? `Resumes automatically ${resetTime}.`
+            : `The usage limit resets ${resetTime}.`}
         </AlertDescription>
         <AlertAction>
           <Button
@@ -46,7 +47,7 @@ export const UsageLimitResumeBanner = memo(function UsageLimitResumeBanner({
               })
             }
           >
-            {scheduled ? "Cancel" : `Resume at ${resetTime}`}
+            {scheduled ? "Cancel" : `Resume ${resetTime}`}
           </Button>
         </AlertAction>
       </Alert>

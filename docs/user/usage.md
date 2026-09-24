@@ -89,7 +89,8 @@ using a proxy through `ANTHROPIC_AUTH_TOKEN`.
 When Claude, Codex, or Grok stops a thread on a usage limit and reports when it resets, the thread
 offers **Resume at** that time. The server sends a short message a minute after the reset, so the
 thread continues while you are away, even with every client closed. Choose **Cancel** to keep the
-thread stopped. Sending your own message clears the pending resume.
+thread stopped. Sending your own message clears the pending resume. Cursor, OpenCode, and
+Antigravity don't report usage limits, so their threads can't resume this way.
 
 To schedule this for every limited thread, turn on **Settings → General → Resume after usage
 limits**. The same page sets the message it sends (`go on` by default) and whether resumed turns

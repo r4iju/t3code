@@ -10,6 +10,20 @@ const RESET_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
+const RESET_DAY_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  weekday: "short",
+  month: "numeric",
+  day: "numeric",
+});
+
+/** Weekly limits reset days out, so anything past today names the day. */
+function formatReset(iso: string): string {
+  const date = new Date(iso);
+  const time = RESET_TIME_FORMATTER.format(date);
+  return date.toDateString() === new Date().toDateString()
+    ? `at ${time}`
+    : `${RESET_DAY_FORMATTER.format(date)} at ${time}`;
+}
 
 /** Offers, or shows, the server-side resume of a thread stopped by a usage limit. */
 export function UsageLimitResumeCard(props: {
@@ -18,17 +32,15 @@ export function UsageLimitResumeCard(props: {
   readonly usageLimit: ThreadUsageLimit & { readonly resetsAt: string };
 }) {
   const setAutoResume = useAtomCommand(threadEnvironment.setAutoResume, "auto-resume update");
-  const resetTime = RESET_TIME_FORMATTER.format(Date.parse(props.usageLimit.resetsAt));
+  const resetTime = formatReset(props.usageLimit.resetsAt);
   const scheduled = props.usageLimit.resumeScheduled;
   return (
     <View className="flex-row items-center gap-3 rounded-[20px] border border-border-subtle bg-card-alt p-4">
       <Text className="min-w-0 flex-1 font-sans text-sm leading-normal text-foreground-secondary">
-        {scheduled
-          ? `Resumes automatically at ${resetTime}.`
-          : `The usage limit resets at ${resetTime}.`}
+        {scheduled ? `Resumes automatically ${resetTime}.` : `The usage limit resets ${resetTime}.`}
       </Text>
       <RequestActionButton
-        label={scheduled ? "Cancel" : `Resume at ${resetTime}`}
+        label={scheduled ? "Cancel" : `Resume ${resetTime}`}
         tone={scheduled ? "secondary" : "primary"}
         onPress={() =>
           void setAutoResume({
