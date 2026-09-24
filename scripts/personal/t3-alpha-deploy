@@ -2,6 +2,7 @@
 # t3-alpha-deploy — install a zip from t3-alpha-build on every Mac and print one
 # `RESULT <host> <status>` line per host:
 #   installed    running the new version
+#   current      already had this version; left alone
 #   busy         an agent turn is running there; left alone (see t3-alpha-install)
 #   unreachable  asleep or offline
 #   failed       the install failed and rolled back
@@ -11,6 +12,9 @@
 # broken and no other Mac is touched. A deploy driven from T3 on this Mac finds
 # `local` busy (the driving turn itself); install it last with
 # `t3-alpha-deploy <zip> local --force`.
+#
+# Deploying the same zip again only touches the hosts that missed it, so a
+# nightly run can re-offer the latest build to Macs that were busy or asleep.
 #
 # Remote hosts get this checkout's installer copied next to the zip, so no Mac
 # carries its own installer copy that can drift.
@@ -48,9 +52,11 @@ on() { # <host> <command>
 }
 
 deploy() { # <host>; sets STATUS
-  local host="$1" zip="$ZIP" installer="$INSTALLER" before out pid rc tries=0
+  local host="$1" zip="$ZIP" installer="$INSTALLER" before out pid rc tries=0 current
+  current=$(on "$host" "defaults read '/Applications/T3 Code (Alpha).app/Contents/Info' CFBundleShortVersionString" 2>/dev/null)
+  [[ $? == 255 ]] && { STATUS=unreachable; return; }
+  [[ "$current" == "$VERSION" ]] && { STATUS=current; return; }
   if [[ "$host" != local ]]; then
-    on "$host" true >/dev/null 2>&1 || { STATUS=unreachable; return; }
     zip="/tmp/$(basename "$ZIP")" installer=/tmp/t3-alpha-install
     scp -q -o BatchMode=yes "$ZIP" "$INSTALLER" "$host:/tmp/" || { STATUS=failed; return; }
   fi

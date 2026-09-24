@@ -30,12 +30,13 @@ A Temporal worker on studio runs this runbook unattended. It lives in
 `packages/t3-release` and posts every result to Slack #homelab.
 
 - **Nightly desktop (05:00 JST):** syncs upstream when the merge is clean and typechecks,
-  then builds and deploys if `origin/main` moved since the last `desktop-v*` tag. A conflicted
+  then builds if `origin/main` moved since the last `desktop-v*` tag, and deploys the latest
+  build to every Mac that does not run it yet. A conflicted
   or failing sync is left as a PR for a human, and the night ships `main` without it.
 - **Weekly mobile (Sunday 06:00 JST):** `t3-mobile-release`, which queues EAS builds only when
   the app's code changed since the last `mobile-*` tag.
 - **Busy Macs are skipped:** a Mac with an agent turn running is left alone and named in
-  Slack. Install it by hand with `--force` once it is idle, or let the next night catch it.
+  Slack. The next night catches it up, or run the deploy by hand once it is idle.
 
 The fork has no CI: its workflows need upstream's Blacksmith runners and never start. The
 nightly gate is local instead: typecheck, a signed build, then studio's own install as the
@@ -79,8 +80,9 @@ scripts/personal/t3-alpha-deploy release/T3-Code-0.0.47-arm64.zip
   new app to all of them; the installer refuses one.
 - **Deploy:** installs on studio first as the canary; if that fails and rolls back, no other
   Mac is touched. Then it copies the zip and installer to matebook and sm-em over SSH and
-  waits for each. Every host ends with a `RESULT <host> installed|busy|unreachable|failed`
-  line. Name hosts to deploy to a subset: `… .zip emanuel@matebook.lan`.
+  waits for each. Every host ends with a `RESULT <host> installed|current|busy|unreachable|failed`
+  line. Hosts already on the version are left alone, so rerunning a deploy only catches up the
+  Macs that missed it. Name hosts to deploy to a subset: `… .zip emanuel@matebook.lan`.
 - **Busy Macs:** a Mac with an agent turn running (including the T3 session driving a manual
   deploy) reports `busy` and is left alone. `--force` installs anyway and ends those turns.
 - **Target Macs must be logged in:** the installer launches the app in the GUI session.
