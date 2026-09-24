@@ -1,0 +1,47 @@
+#!/bin/bash
+# t3-mobile-release — queue EAS production builds of the fork's mobile app for
+# iOS and Android, each auto-submitted to TestFlight / Play internal testing.
+#
+# Skips when nothing the app is built from changed since the last release: the
+# `mobile-<date>` tags on origin mark each released commit. Builds run in EAS's
+# cloud (--no-wait); this script only queues them and tags HEAD.
+#
+# Needs the gitignored apps/mobile/credentials/ (submit keys) and an EAS login
+# as expomozdom.
+#
+# Usage: t3-mobile-release [--force]   # --force releases even without changes
+
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO"
+export PATH="$REPO/node_modules/.bin:$PATH"
+
+# The fork's identity; upstream's defaults point at its own EAS project and IDs.
+export T3CODE_EAS_OWNER=expomozdom
+export T3CODE_EAS_PROJECT_ID=041ec0cd-429a-40d9-8d00-9fcf196ebb59
+export T3CODE_ANDROID_PACKAGE=com.raijustudios.t3code
+export T3CODE_IOS_PERSONAL_TEAM=1
+export T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.raijustudios.t3code
+
+[[ -d apps/mobile/credentials ]] || { echo "error: apps/mobile/credentials is missing." >&2; exit 1; }
+
+git fetch -q origin 'refs/tags/mobile-*:refs/tags/mobile-*'
+LAST="$(git tag -l 'mobile-*' --sort=-creatordate | head -1)"
+if [[ "${1:-}" != --force && -n "$LAST" ]] &&
+  git diff --quiet "$LAST" HEAD -- apps/mobile packages pnpm-lock.yaml; then
+  echo "UNCHANGED: nothing mobile changed since $LAST."
+  exit 0
+fi
+
+vp i
+TAG="mobile-$(date +%Y%m%d)"
+cd apps/mobile
+for platform in ios android; do
+  eas build --profile production -p "$platform" --non-interactive --no-wait \
+    --auto-submit-with-profile personal
+done
+
+git tag -f "$TAG" HEAD
+git push -qf origin "refs/tags/$TAG"
+echo "QUEUED: iOS and Android builds from $(git rev-parse --short HEAD), tagged $TAG."

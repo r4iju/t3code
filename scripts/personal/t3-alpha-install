@@ -38,12 +38,16 @@
 # After a successful install only the backup just taken is kept; older
 # .bak-*/.failed-* bundles are removed.
 #
+# Install and restart refuse (exit 3, "BUSY: ...") while an agent turn is
+# running on this Mac, so an update never cuts off work; --force overrides.
+# An agent driving this script from T3 on the same Mac is itself a running turn.
+#
 # Usage:
-#   t3-alpha-install <path/to/T3-Code-<ver>-arm64.zip> [--expect-version X]
-#   t3-alpha-install --restart [--expect-version X]   # quit + relaunch only
-#   t3-alpha-install --status                          # what is running right now
-#   --expect-version  fail (and roll back if installing) unless the running
-#                     instance reports version X
+#   t3-alpha-install <path/to/T3-Code-<ver>-arm64.zip> [--expect-version X] [--force]
+#   t3-alpha-install --restart [--expect-version X] [--force]   # quit + relaunch only
+#   t3-alpha-install --status                                    # what is running right now
+#   --expect-version  fail (and roll back if installing) unless the installed
+#                     bundle reports version X
 
 set -uo pipefail
 
@@ -71,17 +75,38 @@ if [[ "${1:-}" == "--status" ]]; then
   exit 0
 fi
 
+# Agent turns in progress on this Mac's T3 server. A dead server has none,
+# whatever its database says: stale rows are only reconciled on its next start.
+busy_turns() {
+  local pid
+  pid=$(plutil -extract pid raw "$HOME/.t3/userdata/server-runtime.json" 2>/dev/null) &&
+    kill -0 "$pid" 2>/dev/null || { echo 0; return; }
+  /usr/bin/sqlite3 -readonly -cmd ".timeout 5000" "$HOME/.t3/userdata/state.sqlite" \
+    "SELECT COUNT(*) FROM projection_thread_sessions
+     WHERE (status = 'running' AND active_turn_id IS NOT NULL) OR status = 'starting';"
+}
+
 if [[ "${1:-}" != "--detached" ]]; then
-  MODE="${1:-}"
-  if [[ "$MODE" == "--restart" ]]; then
-    ZIP=""
-  elif [[ -f "$MODE" ]]; then
-    ZIP="$(cd "$(dirname "$MODE")" && pwd)/$(basename "$MODE")"
-  else
-    echo "usage: t3-alpha-install <zip>|--restart [--expect-version X]" >&2
-    exit 2
+  usage() { echo "usage: t3-alpha-install <zip>|--restart [--expect-version X] [--force]" >&2; exit 2; }
+  ZIP="" RESTART="" EXPECT="" FORCE=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --restart) RESTART=1 ;;
+      --expect-version) EXPECT="${2:-}"; shift ;;
+      --force) FORCE=1 ;;
+      *) [[ -f "$1" ]] || usage; ZIP="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")" ;;
+    esac
+    shift
+  done
+  [[ -n "$ZIP" || -n "$RESTART" ]] || usage
+  if [[ -z "$FORCE" ]]; then
+    busy=$(busy_turns)
+    if [[ "$busy" != 0 ]]; then
+      echo "BUSY: ${busy:-unknown} agent turn(s) running; nothing changed. --force overrides."
+      exit 3
+    fi
   fi
-  nohup /bin/bash "$0" --detached "$ZIP" "${2:-}" "${3:-}" >> "$LOG" 2>&1 &
+  nohup /bin/bash "$0" --detached "$ZIP" --expect-version "$EXPECT" >> "$LOG" 2>&1 &
   disown
   echo "Started in background (pid $!). Watch: tail -f $LOG"
   echo "The app will restart; this session will die with it if it runs inside T3."

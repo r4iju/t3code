@@ -23,6 +23,27 @@ Every Mac runs "T3 Code (Alpha)" from `/Applications`, built from this fork. A L
 the desktop app with Settings → Connections → Network access on (`0.0.0.0:3773`, pairing QR).
 Pairing tokens expire in ~5 minutes; mint one right before pairing (`t3 auth pairing create`).
 
+## Nightly and weekly automation
+
+A Temporal worker on studio runs this runbook unattended. It lives in
+[r4iju/temporal-automations](https://github.com/r4iju/temporal-automations) under
+`packages/t3-release` and posts every result to Slack #homelab.
+
+- **Nightly desktop (05:00 JST):** syncs upstream when the merge is clean and typechecks,
+  then builds and deploys if `origin/main` moved since the last `desktop-v*` tag. A conflicted
+  or failing sync is left as a PR for a human, and the night ships `main` without it.
+- **Weekly mobile (Sunday 06:00 JST):** `t3-mobile-release`, which queues EAS builds only when
+  the app's code changed since the last `mobile-*` tag.
+- **Busy Macs are skipped:** a Mac with an agent turn running is left alone and named in
+  Slack. Install it by hand with `--force` once it is idle, or let the next night catch it.
+
+The fork has no CI: its workflows need upstream's Blacksmith runners and never start. The
+nightly gate is local instead: typecheck, a signed build, then studio's own install as the
+canary before any other Mac.
+
+The worker runs from a dedicated worktree, `~/code/t3code-wt-nightly`, detached at
+`origin/main`, so it never touches the main checkout.
+
 ## 1. Sync upstream
 
 Direct pushes to `main` are blocked, so a sync is a PR:
@@ -44,19 +65,24 @@ git -C ~/code/t3code worktree remove ~/code/t3code-wt-sync
 On studio, from a clean `~/code/t3code` on `main`:
 
 ```bash
-scripts/personal/t3-alpha-build 0.0.47
+scripts/personal/t3-alpha-build           # next patch after the latest desktop-v* tag
 scripts/personal/t3-alpha-deploy release/T3-Code-0.0.47-arm64.zip
 ```
 
-- **Version:** the next patch after the last deploy. Every package.json is set to it for the
-  build and restored afterwards, so the app and its server report the same version.
+- **Version:** the next patch after the latest `desktop-v*` tag, or pass one explicitly. A
+  signed build tags its commit `desktop-v<version>` on origin. Every package.json is set to
+  the version for the build and restored afterwards, so the app and its server report the
+  same version.
 - **Signing:** the build is signed with the Apple Development certificate in studio's keychain.
   macOS privacy grants (Screen Recording, Accessibility, …), keychain access and Little Snitch
   rules are tied to that signature, so they carry over between builds. An unsigned build is a
   new app to all of them; the installer refuses one.
-- **Deploy:** copies the zip and installer to matebook and sm-em over SSH, installs, and waits
-  for each result. Studio goes last because its restart ends any T3 session driving the
-  deploy. Name hosts to deploy to a subset: `… .zip emanuel@matebook.lan local`.
+- **Deploy:** installs on studio first as the canary; if that fails and rolls back, no other
+  Mac is touched. Then it copies the zip and installer to matebook and sm-em over SSH and
+  waits for each. Every host ends with a `RESULT <host> installed|busy|unreachable|failed`
+  line. Name hosts to deploy to a subset: `… .zip emanuel@matebook.lan`.
+- **Busy Macs:** a Mac with an agent turn running (including the T3 session driving a manual
+  deploy) reports `busy` and is left alone. `--force` installs anyway and ends those turns.
 - **Target Macs must be logged in:** the installer launches the app in the GUI session.
 - **Failures roll back** to the previous bundle automatically. Each Mac logs to
   `~/Library/Logs/t3-alpha-install.log`; `scripts/personal/t3-alpha-install --status` shows
@@ -76,7 +102,10 @@ T3CODE_IOS_PERSONAL_TEAM=1
 T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID=com.raijustudios.t3code
 ```
 
-From `apps/mobile`, logged in to EAS as `expomozdom`:
+`scripts/personal/t3-mobile-release` sets them, queues both builds with auto-submit, and tags
+the commit `mobile-<date>`. It skips when nothing under `apps/mobile` or `packages` changed
+since the last tag (`--force` releases anyway). By hand, from `apps/mobile`, logged in to EAS
+as `expomozdom`:
 
 ```bash
 eas build --profile production -p ios --non-interactive --no-wait
