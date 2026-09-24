@@ -1,4 +1,5 @@
 import type { EnvironmentId, ThreadId, ThreadUsageLimit } from "@t3tools/contracts";
+import { useState } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
@@ -32,23 +33,31 @@ export function UsageLimitResumeCard(props: {
   readonly usageLimit: ThreadUsageLimit & { readonly resetsAt: string };
 }) {
   const setAutoResume = useAtomCommand(threadEnvironment.setAutoResume, "auto-resume update");
+  const [pending, setPending] = useState(false);
   const resetTime = formatReset(props.usageLimit.resetsAt);
   const scheduled = props.usageLimit.resumeScheduled;
   return (
-    <View className="flex-row items-center gap-3 rounded-[20px] border border-border-subtle bg-card-alt p-4">
-      <Text className="min-w-0 flex-1 font-sans text-sm leading-normal text-foreground-secondary">
-        {scheduled ? `Resumes automatically ${resetTime}.` : `The usage limit resets ${resetTime}.`}
+    <View className="gap-2.5 rounded-[20px] border border-border-subtle bg-card-alt p-4">
+      <Text className="font-t3-bold text-2xs uppercase tracking-[1.1px] text-danger-foreground">
+        Usage limit reached
       </Text>
-      <RequestActionButton
-        label={scheduled ? "Cancel" : `Resume ${resetTime}`}
-        tone={scheduled ? "secondary" : "primary"}
-        onPress={() =>
-          void setAutoResume({
-            environmentId: props.environmentId,
-            input: { threadId: props.threadId, scheduled: !scheduled },
-          })
-        }
-      />
+      <Text className="font-sans text-sm leading-normal text-foreground-secondary">
+        {scheduled ? `Resumes automatically ${resetTime}.` : `Resets ${resetTime}.`}
+      </Text>
+      <View className="flex-row">
+        <RequestActionButton
+          label={scheduled ? "Cancel" : "Auto-resume"}
+          tone={scheduled ? "secondary" : "primary"}
+          disabled={pending}
+          onPress={() => {
+            setPending(true);
+            void setAutoResume({
+              environmentId: props.environmentId,
+              input: { threadId: props.threadId, scheduled: !scheduled },
+            }).finally(() => setPending(false));
+          }}
+        />
+      </View>
     </View>
   );
 }
