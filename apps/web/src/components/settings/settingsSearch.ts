@@ -386,6 +386,29 @@ export const SETTINGS_SEARCH_ITEMS = [
     ],
   },
   {
+    id: "auto-resume-after-usage-limit",
+    title: "Resume after usage limits",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: [
+      "rate limit session limit quota reset continue automatically overnight asleep afk go on",
+    ],
+  },
+  {
+    id: "auto-resume-message",
+    title: "Resume message",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["usage limit reset go on continue prompt text"],
+  },
+  {
+    id: "auto-resume-disables-fast-mode",
+    title: "Turn off fast mode when resuming",
+    to: "/settings/general",
+    scope: "environment-defaults",
+    searchTerms: ["usage limit resume fast mode service tier cheaper"],
+  },
+  {
     id: "background-activity",
     title: "Background activity",
     to: "/settings/general",

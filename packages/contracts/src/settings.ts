@@ -1108,6 +1108,14 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(false)),
   ),
   /**
+   * Resume a thread stopped by a provider usage limit once the limit resets,
+   * by sending `autoResumeMessage`. Threads can also opt in one stop at a time.
+   */
+  autoResumeAfterUsageLimit: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  autoResumeMessage: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed("go on"))),
+  /** Send the resume without fast mode; nobody is waiting on it. */
+  autoResumeDisablesFastMode: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /**
    * Whether agents may drive the in-app preview browser. Turning this off
    * withholds the MCP credential, so the `t3-code` server (and with it every
    * `preview_*` tool) is never attached to a provider session, and the prompt
@@ -1479,6 +1487,9 @@ export const ServerSettingsPatch = Schema.Struct({
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
+  autoResumeAfterUsageLimit: Schema.optionalKey(Schema.Boolean),
+  autoResumeMessage: Schema.optionalKey(Schema.String),
+  autoResumeDisablesFastMode: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
   projectAgentBrowserAccessOverrides: Schema.optionalKey(
     Schema.Record(ProjectId, Schema.NullOr(Schema.Boolean)),

@@ -482,6 +482,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           unsettledAt: null,
           snoozedUntil: null,
           snoozedAt: null,
+          usageLimit: null,
           pinnedAt: "2026-02-24T00:00:01.000Z",
           pinOrderKey: "gm",
           activeOrderKey: "hq",
@@ -608,6 +609,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           unsettledAt: null,
           snoozedUntil: null,
           snoozedAt: null,
+          usageLimit: null,
           pinnedAt: "2026-02-24T00:00:01.000Z",
           pinOrderKey: "gm",
           activeOrderKey: "hq",
@@ -744,6 +746,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           projectId: asProjectId("project-1"),
           title: "Thread 1",
           titleState: null,
+          usageLimit: null,
           session: snapshot.threads[0]?.session ?? null,
         });
       }

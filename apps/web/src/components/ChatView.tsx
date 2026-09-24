@@ -398,6 +398,7 @@ import {
   shouldShowThreadErrorBanner,
   ThreadErrorBanner,
 } from "./chat/ThreadErrorBanner";
+import { UsageLimitResumeBanner } from "./chat/UsageLimitResumeBanner";
 import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import {
@@ -9930,6 +9931,13 @@ export default function ChatView(props: ChatViewProps) {
                   setThreadErrorBannerDismissTick((tick) => tick + 1);
                 }}
               />
+              {activeServerThread !== null && (
+                <UsageLimitResumeBanner
+                  environmentId={routeThreadRef.environmentId}
+                  threadId={activeServerThread.id}
+                  usageLimit={activeServerThread.usageLimit}
+                />
+              )}
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">

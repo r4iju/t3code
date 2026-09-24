@@ -132,3 +132,23 @@ export function resolveUsageLimitsAfterProbe(input: {
   }
   return probed;
 }
+
+/**
+ * When a usage-limit stop says nothing about its reset, the exhausted window
+ * that resets last is what still blocks the account. Undefined when no
+ * exhausted window reports a future reset.
+ */
+export function latestExhaustedWindowResetAt(
+  limits: ServerProviderUsageLimits | undefined,
+  nowIso: string,
+): string | undefined {
+  const nowMs = Date.parse(nowIso);
+  let latest: { readonly iso: string; readonly ms: number } | undefined;
+  for (const window of limits?.windows ?? []) {
+    if (window.usedPercent < 100 || !window.resetsAt) continue;
+    const ms = Date.parse(window.resetsAt);
+    if (!(ms > nowMs) || (latest && latest.ms >= ms)) continue;
+    latest = { iso: window.resetsAt, ms };
+  }
+  return latest?.iso;
+}

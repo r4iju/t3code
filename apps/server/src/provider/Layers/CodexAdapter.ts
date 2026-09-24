@@ -75,6 +75,7 @@ import {
   type CodexRateLimitSnapshot,
   codexRateLimitsToUpdate,
   codexUsageLimitMessage,
+  codexUsageLimitResetsAt,
   mergeCodexRateLimits,
 } from "./codexUsageLimits.ts";
 const isCodexAppServerProcessExitedError = Schema.is(CodexErrors.CodexAppServerProcessExitedError);
@@ -2389,7 +2390,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               if (errorPayload?.error.codexErrorInfo === "usageLimitExceeded") return;
             }
 
-            let usageLimitError: ProviderRuntimeEvent | undefined;
+            let usageLimitEvents: ReadonlyArray<ProviderRuntimeEvent> = [];
             let usageLimitMessage: string | undefined;
             if (event.method === "turn/completed") {
               const completedPayload = readPayload(
@@ -2402,15 +2403,23 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
                   : undefined;
               if (turnError?.codexErrorInfo === "usageLimitExceeded") {
                 usageLimitMessage = codexUsageLimitMessage(rateLimits, event.createdAt);
-                usageLimitError = {
-                  ...runtimeEventBase(event, event.threadId),
-                  type: "runtime.error",
-                  payload: {
-                    message: usageLimitMessage,
-                    class: "provider_error",
-                    ...(turnError.message ? { detail: turnError.message } : {}),
+                const resetsAt = codexUsageLimitResetsAt(rateLimits, event.createdAt);
+                usageLimitEvents = [
+                  {
+                    ...runtimeEventBase(event, event.threadId),
+                    type: "runtime.error",
+                    payload: {
+                      message: usageLimitMessage,
+                      class: "provider_error",
+                      ...(turnError.message ? { detail: turnError.message } : {}),
+                    },
                   },
-                };
+                  {
+                    ...runtimeEventBase(event, event.threadId),
+                    type: "turn.usage-limited",
+                    payload: resetsAt ? { resetsAt } : {},
+                  },
+                ];
               }
             }
 
@@ -2444,9 +2453,7 @@ export const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               }
               return runtimeEvent;
             });
-            const runtimeEvents = usageLimitError
-              ? [usageLimitError, ...mappedEvents]
-              : mappedEvents;
+            const runtimeEvents = [...usageLimitEvents, ...mappedEvents];
             if (runtimeEvents.length === 0) {
               yield* Effect.logDebug("ignoring unhandled Codex provider event", {
                 method: event.method,

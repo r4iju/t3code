@@ -24,6 +24,7 @@ import {
 } from "./components/SettingsEnvironmentFilterHeader";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsControlRow } from "./components/SettingsControlRow";
+import { AutoResumeMessageField } from "./components/AutoResumeMessageField";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
@@ -392,6 +393,44 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       disabled={disabledFor("enableAgentBrowserAccess")}
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
                     />
+                  </SettingsSection>
+                  <SettingsSection title="Usage limits">
+                    <FanoutSwitchRow
+                      icon="clock"
+                      label="Resume after usage limits"
+                      subtitle={
+                        projectSelected
+                          ? "Environment-wide setting. Select All projects to change it."
+                          : "Send the resume message once a provider limit resets."
+                      }
+                      value={uniform("autoResumeAfterUsageLimit")}
+                      disabled={disabledFor("autoResumeAfterUsageLimit")}
+                      onValueChange={(value) => write({ autoResumeAfterUsageLimit: value })}
+                    />
+                    <View className="border-t border-border-subtle">
+                      <SettingsControlRow
+                        icon="text.bubble"
+                        label="Resume message"
+                        disabled={disabledFor("autoResumeMessage")}
+                      >
+                        <AutoResumeMessageField
+                          value={uniform("autoResumeMessage") ?? ""}
+                          placeholder={isMixed("autoResumeMessage") ? "Mixed" : "go on"}
+                          disabled={disabledFor("autoResumeMessage")}
+                          onCommit={(value) => write({ autoResumeMessage: value })}
+                        />
+                      </SettingsControlRow>
+                    </View>
+                    <View className="border-t border-border-subtle">
+                      <FanoutSwitchRow
+                        icon="bolt.circle"
+                        label="Resume without fast mode"
+                        subtitle="Nobody is waiting on a resumed thread."
+                        value={uniform("autoResumeDisablesFastMode")}
+                        disabled={disabledFor("autoResumeDisablesFastMode")}
+                        onValueChange={(value) => write({ autoResumeDisablesFastMode: value })}
+                      />
+                    </View>
                   </SettingsSection>
                 </>
               ) : null}

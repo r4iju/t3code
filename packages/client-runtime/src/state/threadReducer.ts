@@ -133,6 +133,7 @@ export function applyThreadDetailEvent(
           activeOrderKey: null,
           snoozedUntil: null,
           snoozedAt: null,
+          usageLimit: null,
           deletedAt: null,
           pullRequests: [],
           messages: [],
@@ -214,6 +215,23 @@ export function applyThreadDetailEvent(
           updatedAt: event.payload.updatedAt,
         },
       };
+
+    case "thread.usage-limit-set":
+      return {
+        kind: "updated",
+        thread: { ...thread, usageLimit: event.payload.usageLimit },
+      };
+
+    case "thread.auto-resume-set":
+      return thread.usageLimit
+        ? {
+            kind: "updated",
+            thread: {
+              ...thread,
+              usageLimit: { ...thread.usageLimit, resumeScheduled: event.payload.scheduled },
+            },
+          }
+        : { kind: "unchanged" };
 
     case "thread.pinned":
       return {

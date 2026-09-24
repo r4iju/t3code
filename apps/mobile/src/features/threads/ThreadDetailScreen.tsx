@@ -93,6 +93,7 @@ import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
 import { ThreadCreationFailedCard } from "./ThreadCreationFailedCard";
+import { UsageLimitResumeCard } from "./UsageLimitResumeCard";
 import {
   FLOATING_WORKING_CONTROL_COVERAGE,
   FloatingWorkingControl,
@@ -322,6 +323,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const windowHeight = useWindowDimensions().height;
   const navigationHeaderHeight = useContext(HeaderHeightContext) || insets.top + IOS_NAV_BAR_HEIGHT;
   const agentLabel = `${props.selectedThread.modelSelection.instanceId} agent`;
+  const usageLimit = props.selectedThread.usageLimit;
+  const usageLimitWithReset =
+    usageLimit?.resetsAt != null ? { ...usageLimit, resetsAt: usageLimit.resetsAt } : null;
   const selectedThreadKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   useReadAloudLifecycle({ environmentId: props.environmentId, threadId: props.selectedThread.id });
   const composerEditorRef = useRef<ComposerEditorHandle>(null);
@@ -1004,6 +1008,19 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       report={usageLimitsReport}
                       environmentId={props.environmentId}
                       onClose={dismissUsageLimits}
+                    />
+                  </Animated.View>
+                ) : null}
+                {usageLimitWithReset && activeUserInputRequestId === null ? (
+                  <Animated.View
+                    className="shrink-0 px-4 pb-3"
+                    entering={FadeInDown.duration(220)}
+                    exiting={FadeOut.duration(140)}
+                  >
+                    <UsageLimitResumeCard
+                      environmentId={props.environmentId}
+                      threadId={props.selectedThread.id}
+                      usageLimit={usageLimitWithReset}
                     />
                   </Animated.View>
                 ) : null}
