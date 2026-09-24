@@ -11,44 +11,57 @@ import { Button } from "../ui/button";
 
 const selectTimestampFormat = (settings: ClientSettings) => settings.timestampFormat;
 
-/** Offers, or shows, the server-side resume of a thread stopped by a usage limit. */
-export const UsageLimitResumeBanner = memo(function UsageLimitResumeBanner({
-  environmentId,
-  threadId,
-  usageLimit,
-}: {
+interface UsageLimitResumeProps {
   environmentId: EnvironmentId;
   threadId: ThreadId;
-  usageLimit: ThreadUsageLimit | null | undefined;
-}) {
+  usageLimit: ThreadUsageLimit & { resetsAt: string };
+}
+
+function useUsageLimitResume({ environmentId, threadId, usageLimit }: UsageLimitResumeProps) {
   const timestampFormat = useClientSettings(selectTimestampFormat);
   const setAutoResume = useAtomCommand(threadEnvironment.setAutoResume);
-  if (!usageLimit?.resetsAt) return null;
   const upcoming = formatUpcomingTimestamp(usageLimit.resetsAt, timestampFormat);
-  const resetTime = upcoming.startsWith("tomorrow") ? upcoming : `at ${upcoming}`;
   const scheduled = usageLimit.resumeScheduled;
+  return {
+    scheduled,
+    resetTime: upcoming.startsWith("tomorrow") ? upcoming : `at ${upcoming}`,
+    toggle: () => void setAutoResume({ environmentId, input: { threadId, scheduled: !scheduled } }),
+  };
+}
+
+/** Schedule or cancel control, folded into the usage-limit error banner. */
+export const UsageLimitResumeAction = memo(function UsageLimitResumeAction(
+  props: UsageLimitResumeProps,
+) {
+  const { scheduled, resetTime, toggle } = useUsageLimitResume(props);
+  if (!scheduled) {
+    return (
+      <Button variant="outline" size="xs" onClick={toggle}>
+        Resume {resetTime}
+      </Button>
+    );
+  }
+  return (
+    <>
+      <span className="text-xs whitespace-nowrap text-muted-foreground">Resumes {resetTime}</span>
+      <Button variant="ghost" size="xs" onClick={toggle}>
+        Cancel
+      </Button>
+    </>
+  );
+});
+
+/** Stand-in when no error banner is showing, so a scheduled resume stays visible and cancellable. */
+export const UsageLimitResumeBanner = memo(function UsageLimitResumeBanner(
+  props: UsageLimitResumeProps,
+) {
   return (
     <div className="pointer-events-auto mx-auto w-fit max-w-[min(48rem,calc(100%-2rem))] pt-3">
       <Alert variant="info" surface="glass">
         <AlarmClockIcon />
-        <AlertDescription>
-          {scheduled
-            ? `Resumes automatically ${resetTime}.`
-            : `The usage limit resets ${resetTime}.`}
-        </AlertDescription>
+        <AlertDescription>Usage limit reached.</AlertDescription>
         <AlertAction>
-          <Button
-            variant={scheduled ? "ghost" : "outline"}
-            size="xs"
-            onClick={() =>
-              void setAutoResume({
-                environmentId,
-                input: { threadId, scheduled: !scheduled },
-              })
-            }
-          >
-            {scheduled ? "Cancel" : `Resume ${resetTime}`}
-          </Button>
+          <UsageLimitResumeAction {...props} />
         </AlertAction>
       </Alert>
     </div>
