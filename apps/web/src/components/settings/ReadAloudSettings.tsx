@@ -12,7 +12,7 @@ import {
   type SpeechProvider,
   type SpeechSettings,
 } from "@t3tools/contracts";
-import { SquareIcon, Volume2Icon } from "lucide-react";
+import { PlusIcon, SquareIcon, Volume2Icon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -155,18 +155,50 @@ function ReadAloudForm({
       <SettingsRow
         {...searchableSetting("read-aloud-api-key")}
         serverScoped
-        description="Stored on the server and never sent back to clients. Leave blank for local servers."
-        status={errors.apiKey}
+        description="Stored on the server and never sent back to clients. Add a key per account: when one is rate limited, the next takes over until it recovers. Leave blank for local servers."
+        status={errors.apiKeys}
         control={
-          <Input
-            size="sm"
-            className="sm:w-72"
-            type="password"
-            autoComplete="off"
-            aria-label="API key"
-            value={form.apiKey}
-            onChange={(event) => update({ apiKey: event.target.value })}
-          />
+          <div className="flex w-full flex-col items-stretch gap-1.5 sm:w-72">
+            {form.apiKeys.map((key, index) => (
+              // Keys have no identity of their own while being typed.
+              // oxlint-disable-next-line react/no-array-index-key
+              <div key={index} className="flex items-center gap-1">
+                <Input
+                  size="sm"
+                  type="password"
+                  autoComplete="off"
+                  aria-label={`API key ${index + 1}`}
+                  value={key}
+                  onChange={(event) =>
+                    update({
+                      apiKeys: form.apiKeys.map((entry, i) =>
+                        i === index ? event.target.value : entry,
+                      ),
+                    })
+                  }
+                />
+                {form.apiKeys.length > 1 ? (
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Remove API key ${index + 1}`}
+                    onClick={() => update({ apiKeys: form.apiKeys.filter((_, i) => i !== index) })}
+                  >
+                    <XIcon />
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+            <Button
+              size="xs"
+              variant="outline"
+              className="self-start"
+              onClick={() => update({ apiKeys: [...form.apiKeys, ""] })}
+            >
+              <PlusIcon />
+              Add key
+            </Button>
+          </div>
         }
       />
       <SettingsRow

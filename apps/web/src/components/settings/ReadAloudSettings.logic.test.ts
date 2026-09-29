@@ -21,7 +21,7 @@ import {
 const savedSettings = {
   provider: "openai",
   baseUrl: "https://tts.example.com/v1",
-  apiKey: SPEECH_API_KEY_SENTINEL,
+  apiKeys: [`${SPEECH_API_KEY_SENTINEL}aaaa`],
   model: "tts-1",
   voice: "nova",
   maxCharsPerRequest: 1000,
@@ -37,7 +37,7 @@ describe("presets", () => {
     expect(form).toEqual({
       provider: "openai",
       baseUrl: SPEECH_DEFAULT_BASE_URL,
-      apiKey: SPEECH_API_KEY_SENTINEL,
+      apiKeys: [`${SPEECH_API_KEY_SENTINEL}aaaa`],
       model: SPEECH_DEFAULT_MODEL,
       voice: SPEECH_DEFAULT_VOICE,
       maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
@@ -53,7 +53,7 @@ describe("presets", () => {
     expect(form).toEqual({
       provider: "openai",
       baseUrl: "http://localhost:8880/v1",
-      apiKey: "",
+      apiKeys: [""],
       model: "kokoro",
       voice: "af_bella",
       maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
@@ -69,14 +69,14 @@ describe("patches", () => {
   it("turning on writes the default block and turning off writes null", () => {
     expect(readAloudEnabledPatch(true)).toEqual({ speech: defaultSpeechSettings() });
     expect(readAloudEnabledPatch(false)).toEqual({ speech: null });
-    expect(defaultSpeechSettings().apiKey).toBe("");
+    expect(defaultSpeechSettings().apiKeys).toEqual([]);
   });
 
   it("a valid form becomes a trimmed whole speech block", () => {
     const result = validateReadAloudForm({
       provider: "openai",
       baseUrl: " https://tts.example.com/v1 ",
-      apiKey: " sk-test ",
+      apiKeys: [" sk-test ", "  ", "sk-second"],
       model: " tts-1 ",
       voice: " nova ",
       maxCharsPerRequest: " 1500 ",
@@ -90,7 +90,8 @@ describe("patches", () => {
       settings: {
         provider: "openai",
         baseUrl: "https://tts.example.com/v1",
-        apiKey: "sk-test",
+        // Blank inputs are dropped.
+        apiKeys: ["sk-test", "sk-second"],
         model: "tts-1",
         voice: "nova",
         maxCharsPerRequest: 1500,
@@ -106,16 +107,19 @@ describe("patches", () => {
   it("keeps the CJK voice when the dialect can route to it", () => {
     const result = validateReadAloudForm({
       ...readAloudFormFromSettings(savedSettings),
-      apiKey: "sk-test",
       dialect: "kokoro",
       cjkVoice: " jf_alpha ",
     });
     expect(result.ok && result.settings.cjkVoice).toBe("jf_alpha");
   });
 
-  it("leaving the redacted key untouched sends the sentinel back so the stored key survives", () => {
+  it("leaving a redacted key untouched sends its marker back so the stored key survives", () => {
     const result = validateReadAloudForm(readAloudFormFromSettings(savedSettings));
-    expect(result.ok && result.settings.apiKey).toBe(SPEECH_API_KEY_SENTINEL);
+    expect(result.ok && result.settings.apiKeys).toEqual([`${SPEECH_API_KEY_SENTINEL}aaaa`]);
+  });
+
+  it("shows one empty input when no key is saved", () => {
+    expect(readAloudFormFromSettings({ ...savedSettings, apiKeys: [] }).apiKeys).toEqual([""]);
   });
 });
 
@@ -168,7 +172,12 @@ describe("validation", () => {
   });
 
   it("allows an empty API key for unauthenticated local servers", () => {
-    expect(validateReadAloudForm({ ...validForm, apiKey: "" }).ok).toBe(true);
+    expect(validateReadAloudForm({ ...validForm, apiKeys: [""] }).ok).toBe(true);
+  });
+
+  it("requires a key for Gemini", () => {
+    const result = validateReadAloudForm({ ...validForm, provider: "gemini", apiKeys: [" "] });
+    expect(!result.ok && Object.keys(result.errors)).toEqual(["apiKeys"]);
   });
 });
 
@@ -178,7 +187,13 @@ describe("dirty tracking", () => {
     expect(isReadAloudFormDirty(form, savedSettings)).toBe(false);
     expect(isReadAloudFormDirty({ ...form, model: " tts-1 " }, savedSettings)).toBe(false);
     expect(isReadAloudFormDirty({ ...form, voice: "alloy" }, savedSettings)).toBe(true);
-    expect(isReadAloudFormDirty({ ...form, apiKey: "sk-new" }, savedSettings)).toBe(true);
+    expect(isReadAloudFormDirty({ ...form, apiKeys: [...form.apiKeys, ""] }, savedSettings)).toBe(
+      false,
+    );
+    expect(
+      isReadAloudFormDirty({ ...form, apiKeys: [...form.apiKeys, "sk-new"] }, savedSettings),
+    ).toBe(true);
+    expect(isReadAloudFormDirty({ ...form, apiKeys: [""] }, savedSettings)).toBe(true);
     expect(isReadAloudFormDirty({ ...form, dialect: "kokoro" }, savedSettings)).toBe(true);
     expect(isReadAloudFormDirty({ ...form, cjkVoice: "jf_alpha" }, savedSettings)).toBe(true);
   });

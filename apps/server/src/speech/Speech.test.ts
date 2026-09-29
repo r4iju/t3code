@@ -7,6 +7,7 @@ import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import * as HttpClientError from "effect/unstable/http/HttpClientError";
 
@@ -19,6 +20,7 @@ import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as Speech from "./Speech.ts";
+import { retryAfterMs } from "./speechRequest.ts";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), { prefix: "t3-speech-test-" });
 const baseLayer = Layer.mergeAll(
@@ -34,7 +36,7 @@ const baseLayer = Layer.mergeAll(
 
 const settings: SpeechSettings = {
   baseUrl: "http://tts.test:8880/v1/",
-  apiKey: "sk-test",
+  apiKeys: ["sk-test"],
   model: "tts-1",
   voice: "alloy",
   maxCharsPerRequest: 4096,
@@ -71,7 +73,7 @@ interface RecordedRequest {
 
 function fixture(options?: {
   readonly speech?: SpeechSettings | null;
-  readonly respond?: (body: typeof RequestBody.Type) => Response;
+  readonly respond?: (body: typeof RequestBody.Type, authorization?: string) => Response;
   readonly unreachable?: boolean;
   /** Answers the summarizer endpoint; absent means it is not reachable. */
   readonly summary?: () => Response;
@@ -133,7 +135,7 @@ function fixture(options?: {
         );
       }
       const response =
-        options?.respond?.(body) ??
+        options?.respond?.(body, request.headers.authorization) ??
         new Response(text.encode(`[${body.input}]`), {
           headers: { "content-type": "audio/mpeg" },
         });
@@ -181,7 +183,7 @@ describe("Speech", () => {
           ...settings,
           provider: "gemini",
           baseUrl: "https://generativelanguage.googleapis.com/v1beta/",
-          apiKey: "gm-test",
+          apiKeys: ["gm-test"],
           model: "gemini-3.8-flash-tts",
           voice: "Kore",
         },
@@ -380,7 +382,7 @@ describe("Speech", () => {
 
   it.effect("omits the Authorization header when no key is configured", () =>
     Effect.gen(function* () {
-      const test = fixture({ speech: { ...settings, apiKey: "" } });
+      const test = fixture({ speech: { ...settings, apiKeys: [] } });
       yield* Effect.provide(
         Effect.flatMap(Speech.Speech, (speech) => speech.synthesizeText("Local model.", 0)),
         test.layer,
@@ -388,6 +390,74 @@ describe("Speech", () => {
       expect(test.requests[0]!.authorization).toBeUndefined();
     }).pipe(Effect.provide(baseLayer)),
   );
+
+  it.effect("falls back to the next key on a 429 and benches the first for its Retry-After", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: { ...settings, apiKeys: ["sk-first", "sk-second"] },
+        respond: (body, authorization) =>
+          authorization === "Bearer sk-first"
+            ? new Response("slow down", { status: 429, headers: { "retry-after": "30" } })
+            : new Response(text.encode(`[${body.input}]`), {
+                headers: { "content-type": "audio/mpeg" },
+              }),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const speak = (words: string) => speech.synthesizeText(words, 0);
+      const keysTried = () => test.requests.map((request) => request.authorization);
+
+      yield* speak("First words.");
+      expect(keysTried()).toEqual(["Bearer sk-first", "Bearer sk-second"]);
+
+      yield* speak("Second words.");
+      expect(keysTried().slice(2)).toEqual(["Bearer sk-second"]);
+
+      yield* TestClock.adjust("30 seconds");
+      yield* speak("Third words.");
+      expect(keysTried().slice(3)).toEqual(["Bearer sk-first", "Bearer sk-second"]);
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("fails fast without a request while every key is cooling down", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: { ...settings, apiKeys: ["gm-only"], provider: "openai" },
+        // Gemini states its wait in the body rather than a header.
+        respond: () =>
+          new Response('{"error":{"details":[{"retryDelay": "31s"}]}}', { status: 429 }),
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const attempt = (words: string) => Effect.flip(speech.synthesizeText(words, 0));
+      const first = yield* attempt("First words.");
+      expect(first).toMatchObject({ reason: "rate-limited", retryAfterMs: 31_000 });
+      const second = yield* attempt("Second words.");
+      expect(second).toMatchObject({ reason: "rate-limited", retryAfterMs: 31_000 });
+      expect(test.requests).toHaveLength(1);
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it.effect("keeps to one key when the endpoint itself fails", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: { ...settings, apiKeys: ["sk-first", "sk-second"] },
+        respond: () => new Response("boom", { status: 500 }),
+      });
+      const error = yield* Effect.provide(
+        Effect.flatMap(Speech.Speech, (speech) => Effect.flip(speech.synthesizeText("Hi.", 0))),
+        test.layer,
+      );
+      expect(error).toMatchObject({ reason: "unavailable" });
+      expect(test.requests).toHaveLength(1);
+    }).pipe(Effect.provide(baseLayer)),
+  );
+
+  it("reads a stated wait from Retry-After seconds, an HTTP date, or Gemini's body", () => {
+    const now = Date.parse("2026-09-29T12:00:00Z");
+    expect(retryAfterMs("12", "", now)).toBe(12_000);
+    expect(retryAfterMs("Tue, 29 Sep 2026 12:01:00 GMT", "", now)).toBe(60_000);
+    expect(retryAfterMs(undefined, '{"retryDelay": "2.5s"}', now)).toBe(2_500);
+    expect(retryAfterMs(undefined, "", now)).toBeUndefined();
+  });
 
   it.effect("maps transport and status failures onto service error reasons", () =>
     Effect.gen(function* () {

@@ -40,6 +40,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Result from "effect/Result";
 import * as Semaphore from "effect/Semaphore";
 import { HttpClient } from "effect/unstable/http";
 
@@ -106,6 +107,11 @@ const SPEECH_CLIENTS = {
   gemini: GeminiSpeechClient.synthesizeSpeechChunk,
 } satisfies Record<SpeechSettings["provider"], unknown>;
 
+// A 429 without a stated wait, and a rejected key, still sit out a while so
+// every play does not hit the same wall first.
+const RATE_LIMIT_DEFAULT_COOLDOWN_MS = 60_000;
+const UNAUTHORIZED_COOLDOWN_MS = 10 * 60_000;
+
 /**
  * Deletes least-recently-used files until the directory fits the cap. Runs
  * after every write, so it only ever has a file or two to remove.
@@ -162,6 +168,51 @@ export const make = Effect.gen(function* () {
   >();
 
   const cacheError = (cause: unknown) => new SpeechCacheError({ cause });
+
+  // When each key may be tried again. In memory: a restart forgets them, which
+  // costs at most one request per key.
+  const keyCooldowns = new Map<string, number>();
+
+  /**
+   * Tries each key that is not cooling down, in the owner's order. A 429 or a
+   * rejected key benches that key and moves on; any other failure is about the
+   * endpoint, not the account, so it ends the attempt.
+   */
+  const synthesizeWithKeys = Effect.fn("Speech.synthesizeWithKeys")(function* (
+    speech: SpeechSettings,
+    text: string,
+  ) {
+    const keys = speech.apiKeys.length > 0 ? speech.apiKeys : [""];
+    const now = yield* Clock.currentTimeMillis;
+    const ready = keys.filter((key) => (keyCooldowns.get(key) ?? 0) <= now);
+    if (ready.length === 0) {
+      const next = Math.min(...keys.map((key) => keyCooldowns.get(key) ?? now));
+      return yield* new SpeechServiceError({
+        reason: "rate-limited",
+        detail: `Every API key is cooling down; the next is free in ${Math.ceil((next - now) / 1000)}s.`,
+        retryAfterMs: next - now,
+      });
+    }
+    let lastError: SpeechServiceError | undefined;
+    for (const key of ready) {
+      const result = yield* Effect.result(SPEECH_CLIENTS[speech.provider](speech, key, text));
+      if (Result.isSuccess(result)) {
+        keyCooldowns.delete(key);
+        return result.success;
+      }
+      const error = result.failure;
+      if (error.reason !== "rate-limited" && error.reason !== "unauthorized") {
+        return yield* error;
+      }
+      const cooldown =
+        error.reason === "unauthorized"
+          ? UNAUTHORIZED_COOLDOWN_MS
+          : (error.retryAfterMs ?? RATE_LIMIT_DEFAULT_COOLDOWN_MS);
+      keyCooldowns.set(key, (yield* Clock.currentTimeMillis) + cooldown);
+      lastError = error;
+    }
+    return yield* lastError ?? new SpeechServiceError({ reason: "unavailable", detail: "" });
+  });
 
   // Two plays of the same segment wait on one synthesis instead of racing.
   const inflight = new Map<string, { readonly lock: Semaphore.Semaphore; count: number }>();
@@ -309,7 +360,7 @@ export const make = Effect.gen(function* () {
             .pipe(Effect.ignore);
           return yield* issueResult(cached, plans.length);
         }
-        const audio = yield* SPEECH_CLIENTS[speech.provider](speech, segmentText);
+        const audio = yield* synthesizeWithKeys(speech, segmentText);
         const extension = EXTENSION_BY_MIME_TYPE[audio.mimeType];
         if (extension === undefined) {
           return yield* new SpeechServiceError({

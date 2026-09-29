@@ -150,8 +150,56 @@ function usageLimitSourceSecretName(sourceId: string): string {
   return `usage-limit-source-${Buffer.from(sourceId, "utf8").toString("base64url")}`;
 }
 
-/** The read-aloud API key follows the same marker round-trip; one key per environment. */
+/** The read-aloud API keys live in one secret as a JSON array. */
 export const SPEECH_API_KEY_SECRET_NAME = "speech-api-key";
+
+/**
+ * Keys show their last four characters so owners can tell accounts apart, and
+ * the server can tell which stored key a marker sent back stands for. Short
+ * keys show nothing rather than most of themselves.
+ */
+export function redactSpeechApiKey(key: string): string {
+  return USAGE_LIMIT_SOURCE_KEY_REDACTED + (key.length >= 16 ? key.slice(-4) : "");
+}
+
+function isRedactedSpeechApiKey(entry: string): boolean {
+  return entry.startsWith(USAGE_LIMIT_SOURCE_KEY_REDACTED);
+}
+
+/**
+ * Swaps each marker for the stored key it stands for, in the order given, so
+ * reordering and removing keys needs no ids. The bare marker is what a single
+ * key was saved as before there were several, and stands for any key. A marker
+ * with nothing left to match is dropped.
+ */
+function resolveSpeechApiKeys(
+  entries: ReadonlyArray<string>,
+  stored: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const unused = [...stored];
+  const resolved: string[] = [];
+  for (const entry of entries) {
+    if (!isRedactedSpeechApiKey(entry)) {
+      resolved.push(entry);
+      continue;
+    }
+    const index = unused.findIndex(
+      (key) => entry === USAGE_LIMIT_SOURCE_KEY_REDACTED || redactSpeechApiKey(key) === entry,
+    );
+    const [key] = index === -1 ? [] : unused.splice(index, 1);
+    if (key !== undefined) resolved.push(key);
+  }
+  return resolved;
+}
+
+const StoredSpeechApiKeys = Schema.fromJsonString(Schema.Array(Schema.String));
+const decodeStoredSpeechApiKeys = Schema.decodeUnknownOption(StoredSpeechApiKeys);
+const encodeStoredSpeechApiKeys = Schema.encodeSync(StoredSpeechApiKeys);
+
+/** A secret written before there were several keys is the one raw key. */
+function parseStoredSpeechApiKeys(value: string): ReadonlyArray<string> {
+  return Option.getOrElse(decodeStoredSpeechApiKeys(value), () => [value]);
+}
 
 function redactProviderEnvironmentVariable(
   variable: ProviderInstanceEnvironmentVariable,
@@ -195,7 +243,7 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
       ? null
       : {
           ...settings.speech,
-          apiKey: settings.speech.apiKey.length > 0 ? USAGE_LIMIT_SOURCE_KEY_REDACTED : "",
+          apiKeys: settings.speech.apiKeys.map(redactSpeechApiKey),
         };
   return { ...settings, providerInstances, usageLimitSources, speech };
 }
@@ -663,6 +711,15 @@ const make = Effect.gen(function* () {
 
   const getSettingsFromCache = Cache.get(settingsCache, cacheKey);
 
+  const readStoredSpeechApiKeys = secretStore.get(SPEECH_API_KEY_SECRET_NAME).pipe(
+    Effect.map((secret): ReadonlyArray<string> =>
+      Option.isSome(secret) ? parseStoredSpeechApiKeys(textDecoder.decode(secret.value)) : [],
+    ),
+    Effect.mapError(
+      (cause) => new ServerSettingsError({ settingsPath, operation: "read-secret", cause }),
+    ),
+  );
+
   const materializeProviderEnvironmentSecrets = (
     settings: ServerSettings,
   ): Effect.Effect<ServerSettings, ServerSettingsError> =>
@@ -721,17 +778,10 @@ const make = Effect.gen(function* () {
         };
       }
       let speech = settings.speech;
-      if (speech !== null && speech.apiKey === USAGE_LIMIT_SOURCE_KEY_REDACTED) {
-        const secret = yield* secretStore
-          .get(SPEECH_API_KEY_SECRET_NAME)
-          .pipe(
-            Effect.mapError(
-              (cause) => new ServerSettingsError({ settingsPath, operation: "read-secret", cause }),
-            ),
-          );
+      if (speech !== null && speech.apiKeys.some(isRedactedSpeechApiKey)) {
         speech = {
           ...speech,
-          apiKey: Option.isSome(secret) ? textDecoder.decode(secret.value) : "",
+          apiKeys: resolveSpeechApiKeys(speech.apiKeys, yield* readStoredSpeechApiKeys),
         };
       }
       return {
@@ -768,7 +818,11 @@ const make = Effect.gen(function* () {
     | { readonly kind: "remove"; readonly operation: "remove-secret" | "remove-stale-secret" }
   );
 
-  const persistProviderEnvironmentSecrets = (current: ServerSettings, next: ServerSettings) =>
+  const persistProviderEnvironmentSecrets = (
+    current: ServerSettings,
+    next: ServerSettings,
+    storedSpeechApiKeys: ReadonlyArray<string>,
+  ) =>
     Effect.sync(() => {
       const providerInstances: Record<string, ProviderInstanceConfig> = {
         ...next.providerInstances,
@@ -880,22 +934,30 @@ const make = Effect.gen(function* () {
         });
       }
 
+      // Markers from the client mean "keep that key"; resolving them against
+      // the store keeps keys the client never saw in plain text.
       let speech = next.speech;
-      if (speech === null || speech.apiKey.length === 0) {
+      const speechApiKeys =
+        speech === null ? [] : resolveSpeechApiKeys(speech.apiKeys, storedSpeechApiKeys);
+      if (speechApiKeys.length === 0) {
         changes.push({
           kind: "remove",
           secretName: SPEECH_API_KEY_SECRET_NAME,
           operation: "remove-secret",
         });
-      } else if (speech.apiKey !== USAGE_LIMIT_SOURCE_KEY_REDACTED) {
+      } else if (
+        speechApiKeys.length !== storedSpeechApiKeys.length ||
+        speechApiKeys.some((key, index) => key !== storedSpeechApiKeys[index])
+      ) {
         changes.push({
           kind: "write",
           secretName: SPEECH_API_KEY_SECRET_NAME,
-          value: textEncoder.encode(speech.apiKey),
+          value: textEncoder.encode(encodeStoredSpeechApiKeys(speechApiKeys)),
         });
-        speech = { ...speech, apiKey: USAGE_LIMIT_SOURCE_KEY_REDACTED };
       }
-      // A marker from the client means "keep what you have"; the store already has it.
+      if (speech !== null) {
+        speech = { ...speech, apiKeys: speechApiKeys.map(redactSpeechApiKey) };
+      }
 
       return {
         settings: {
@@ -991,7 +1053,11 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* getSettingsFromCache;
         const updated = applyServerSettingsPatch(current, patch);
-        const persisted = yield* persistProviderEnvironmentSecrets(current, updated);
+        const persisted = yield* persistProviderEnvironmentSecrets(
+          current,
+          updated,
+          yield* readStoredSpeechApiKeys,
+        );
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {

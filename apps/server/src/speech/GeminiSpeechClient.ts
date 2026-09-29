@@ -31,7 +31,7 @@ const Interaction = Schema.Struct({
 const decodeInteraction = Schema.decodeUnknownEffect(Interaction);
 
 export const synthesizeSpeechChunk = Effect.fn("GeminiSpeechClient.synthesizeSpeechChunk")(
-  function* (settings: SpeechSettings, input: string) {
+  function* (settings: SpeechSettings, apiKey: string, input: string) {
     const url = `${settings.baseUrl.replace(/\/+$/, "")}/interactions`;
     const request = HttpClientRequest.post(url).pipe(
       HttpClientRequest.bodyJsonUnsafe({
@@ -40,7 +40,7 @@ export const synthesizeSpeechChunk = Effect.fn("GeminiSpeechClient.synthesizeSpe
         response_format: { type: "audio" },
         generation_config: { speech_config: [{ voice: settings.voice }] },
       }),
-      HttpClientRequest.setHeader("x-goog-api-key", settings.apiKey),
+      HttpClientRequest.setHeader("x-goog-api-key", apiKey),
     );
     return yield* sendSpeechRequest(request, (response) =>
       Effect.gen(function* () {

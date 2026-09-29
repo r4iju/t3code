@@ -109,7 +109,9 @@ OpenAI speech API, so you can point it at OpenAI with an API key or at a local
 model server on your own machine or network with no key. Gemini's speech models
 use their own API instead: pick the **Gemini** preset and enter a Gemini API key.
 Enter the model and voice names that endpoint expects, then use **Test voice** to
-confirm it works.
+confirm it works. **Add key** takes a key from another account: keys are tried in
+order, and one that is rate limited or rejected sits out for as long as the
+service asks while the next one reads.
 Mobile reads whatever the environment has configured; it cannot change it.
 
 Set **Speech dialect** to Kokoro when the endpoint is a Kokoro server. That lets
