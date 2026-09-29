@@ -38,6 +38,7 @@ const settings: SpeechSettings = {
   model: "tts-1",
   voice: "alloy",
   maxCharsPerRequest: 4096,
+  provider: "openai",
   dialect: "plain",
   cjkVoice: "",
   summaryBaseUrl: "",
@@ -57,6 +58,7 @@ const SummaryRequestBody = Schema.Struct({
   messages: Schema.Array(Schema.Struct({ role: Schema.String, content: Schema.String })),
   reasoning_effort: Schema.String,
 });
+const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const decodeSummaryRequest = Schema.decodeUnknownSync(Schema.fromJsonString(SummaryRequestBody));
 const text = new TextEncoder();
 const decodeText = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
@@ -76,8 +78,36 @@ function fixture(options?: {
 }) {
   const requests: RecordedRequest[] = [];
   const summaryRequests: Array<typeof SummaryRequestBody.Type> = [];
+  const geminiRequests: Array<{
+    readonly url: string;
+    readonly apiKey: string | undefined;
+    readonly body: unknown;
+  }> = [];
   const http = HttpClient.make((request) =>
     Effect.suspend(() => {
+      if (request.url.endsWith("/interactions")) {
+        if (request.body._tag !== "Uint8Array") throw new Error("expected a JSON body");
+        const body = decodeJson(decodeText(request.body.body));
+        geminiRequests.push({ url: request.url, apiKey: request.headers["x-goog-api-key"], body });
+        const input = (body as { input: [{ content: [{ text: string }] }] }).input[0].content[0]
+          .text;
+        const response = Response.json({
+          steps: [
+            { type: "user_input", content: [{ type: "text", text: input }] },
+            {
+              type: "model_output",
+              content: [
+                {
+                  type: "audio",
+                  mime_type: "audio/wav",
+                  data: Buffer.from(`[${input}]`).toString("base64"),
+                },
+              ],
+            },
+          ],
+        });
+        return Effect.succeed(HttpClientResponse.fromWeb(request, response));
+      }
       if (request.url.endsWith("/chat/completions")) {
         if (request.body._tag !== "Uint8Array") throw new Error("expected a JSON body");
         summaryRequests.push(decodeSummaryRequest(decodeText(request.body.body)));
@@ -121,7 +151,7 @@ function fixture(options?: {
     ),
     Layer.provideMerge(baseLayer),
   );
-  return { requests, summaryRequests, layer };
+  return { requests, summaryRequests, geminiRequests, layer };
 }
 
 const readResult = (relativeUrl: string) =>
@@ -142,6 +172,39 @@ describe("Speech", () => {
       const error = yield* Effect.flip(speech.synthesizeText("Hello there.", 0));
       expect(error._tag).toBe("SpeechNotConfiguredError");
     }).pipe(Effect.provide(fixture({ speech: null }).layer)),
+  );
+
+  it.effect("speaks through Gemini's interactions API when the provider is Gemini", () =>
+    Effect.gen(function* () {
+      const test = fixture({
+        speech: {
+          ...settings,
+          provider: "gemini",
+          baseUrl: "https://generativelanguage.googleapis.com/v1beta/",
+          apiKey: "gm-test",
+          model: "gemini-3.8-flash-tts",
+          voice: "Kore",
+        },
+      });
+      const speech = yield* Effect.provide(Speech.Speech, test.layer);
+      const result = yield* speech.synthesizeText("Hello there.", 0);
+      expect(test.requests).toHaveLength(0);
+      expect(test.geminiRequests).toEqual([
+        {
+          url: "https://generativelanguage.googleapis.com/v1beta/interactions",
+          apiKey: "gm-test",
+          body: {
+            model: "gemini-3.8-flash-tts",
+            input: [{ type: "user_input", content: [{ type: "text", text: "Hello there." }] }],
+            response_format: { type: "audio" },
+            generation_config: { speech_config: [{ voice: "Kore" }] },
+          },
+        },
+      ]);
+      expect(result.mimeType).toBe("audio/wav");
+      const { contents } = yield* readResult(result.relativeUrl);
+      expect(contents).toBe("[Hello there.]");
+    }).pipe(Effect.provide(baseLayer)),
   );
 
   const TABLE = "| step | result |\n| --- | --- |\n| before | flat |";

@@ -106,8 +106,10 @@ General → Read Aloud**. The audio is time-stretched, so the voice keeps its pi
 Read aloud is off until the environment owner configures a speech service under
 **Settings → General → Read aloud**. The service is any endpoint that speaks the
 OpenAI speech API, so you can point it at OpenAI with an API key or at a local
-model server on your own machine or network with no key. Enter the model and
-voice names that endpoint expects, then use **Test voice** to confirm it works.
+model server on your own machine or network with no key. Gemini's speech models
+use their own API instead: pick the **Gemini** preset and enter a Gemini API key.
+Enter the model and voice names that endpoint expects, then use **Test voice** to
+confirm it works.
 Mobile reads whatever the environment has configured; it cannot change it.
 
 Set **Speech dialect** to Kokoro when the endpoint is a Kokoro server. That lets

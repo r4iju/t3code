@@ -3,20 +3,13 @@
  * that speaks that shape works, cloud or local, which is why the base URL and
  * an optional key are all the configuration there is.
  */
-import { SpeechServiceError, type SpeechSettings } from "@t3tools/contracts";
+import type { SpeechSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClientRequest } from "effect/unstable/http";
 
-export interface SpeechAudioChunk {
-  readonly bytes: Uint8Array;
-  readonly mimeType: string;
-}
+import { sendSpeechRequest, type SpeechAudioChunk, unavailable } from "./speechRequest.ts";
 
-// Local models can take minutes per chunk; a short timeout would only ever
-// fail the slow-but-working case.
-const REQUEST_TIMEOUT = "3 minutes";
 const DEFAULT_MIME_TYPE = "audio/mpeg";
-const ERROR_DETAIL_MAX_CHARS = 200;
 
 function responseMimeType(contentType: string | undefined): string {
   const mimeType = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
@@ -27,11 +20,7 @@ function responseMimeType(contentType: string | undefined): string {
 }
 
 export const synthesizeSpeechChunk = Effect.fn("OpenAiSpeechClient.synthesizeSpeechChunk")(
-  function* (
-    settings: SpeechSettings,
-    input: string,
-  ): Effect.fn.Return<SpeechAudioChunk, SpeechServiceError, HttpClient.HttpClient> {
-    const client = yield* HttpClient.HttpClient;
+  function* (settings: SpeechSettings, input: string) {
     const url = `${settings.baseUrl.replace(/\/+$/, "")}/audio/speech`;
     const request = HttpClientRequest.post(url).pipe(
       HttpClientRequest.bodyJsonUnsafe({
@@ -47,44 +36,14 @@ export const synthesizeSpeechChunk = Effect.fn("OpenAiSpeechClient.synthesizeSpe
         ? HttpClientRequest.setHeader("Authorization", `Bearer ${settings.apiKey}`)
         : (request) => request,
     );
-
-    return yield* Effect.gen(function* () {
-      const response = yield* client
-        .execute(request)
-        .pipe(
-          Effect.mapError(
-            (error) => new SpeechServiceError({ reason: "unreachable", detail: error.message }),
-          ),
-        );
-      if (response.status < 200 || response.status >= 300) {
-        const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
-        const detail = `${response.status} ${body.slice(0, ERROR_DETAIL_MAX_CHARS)}`.trim();
-        return yield* new SpeechServiceError({
-          reason:
-            response.status === 401 || response.status === 403
-              ? "unauthorized"
-              : response.status === 429
-                ? "rate-limited"
-                : "unavailable",
-          detail,
-        });
-      }
-      const bytes = yield* response.arrayBuffer.pipe(
-        Effect.map((buffer) => new Uint8Array(buffer)),
-        Effect.mapError(
-          (error) => new SpeechServiceError({ reason: "unavailable", detail: error.message }),
-        ),
-      );
-      return { bytes, mimeType: responseMimeType(response.headers["content-type"]) };
-    }).pipe(
-      Effect.timeoutOrElse({
-        duration: REQUEST_TIMEOUT,
-        orElse: () =>
-          new SpeechServiceError({
-            reason: "unreachable",
-            detail: `No response within ${REQUEST_TIMEOUT}.`,
-          }),
-      }),
+    return yield* sendSpeechRequest(request, (response) =>
+      response.arrayBuffer.pipe(
+        Effect.map((buffer): SpeechAudioChunk => ({
+          bytes: new Uint8Array(buffer),
+          mimeType: responseMimeType(response.headers["content-type"]),
+        })),
+        Effect.mapError((error) => unavailable(error.message)),
+      ),
     );
   },
 );

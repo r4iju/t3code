@@ -4,9 +4,14 @@ import {
   SPEECH_DEFAULT_DIALECT,
   SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST,
   SPEECH_DEFAULT_MODEL,
+  SPEECH_DEFAULT_PROVIDER,
   SPEECH_DEFAULT_VOICE,
+  SPEECH_GEMINI_BASE_URL,
+  SPEECH_GEMINI_MODEL,
+  SPEECH_GEMINI_VOICE,
   SPEECH_MAX_TOTAL_CHARS,
   type SpeechDialect,
+  type SpeechProvider,
   type SpeechSettings,
 } from "@t3tools/contracts";
 
@@ -15,6 +20,7 @@ export const SPEECH_API_KEY_SENTINEL = "••••••";
 export const SPEECH_MIN_CHARS_PER_REQUEST = 200;
 
 export interface ReadAloudFormValues {
+  readonly provider: SpeechProvider;
   readonly baseUrl: string;
   readonly apiKey: string;
   readonly model: string;
@@ -28,15 +34,17 @@ export interface ReadAloudFormValues {
 
 export type ReadAloudFormErrors = Partial<Record<keyof ReadAloudFormValues, string>>;
 
-export type ReadAloudPreset = "openai" | "local";
+export type ReadAloudPreset = "openai" | "gemini" | "local";
 
 export const READ_ALOUD_PRESET_LABELS: Record<ReadAloudPreset, string> = {
   openai: "OpenAI",
+  gemini: "Gemini",
   local: "Local server",
 };
 
 export function defaultSpeechSettings(): SpeechSettings {
   return {
+    provider: SPEECH_DEFAULT_PROVIDER,
     baseUrl: SPEECH_DEFAULT_BASE_URL,
     apiKey: "",
     model: SPEECH_DEFAULT_MODEL,
@@ -51,6 +59,7 @@ export function defaultSpeechSettings(): SpeechSettings {
 
 export function readAloudFormFromSettings(settings: SpeechSettings): ReadAloudFormValues {
   return {
+    provider: settings.provider,
     baseUrl: settings.baseUrl,
     apiKey: settings.apiKey,
     model: settings.model,
@@ -64,9 +73,9 @@ export function readAloudFormFromSettings(settings: SpeechSettings): ReadAloudFo
 }
 
 /**
- * Presets only prefill the endpoint fields. OpenAI keeps whatever key is in
- * the form since the user has to supply their own; the local preset clears it
- * because local servers run unauthenticated.
+ * Presets only prefill the endpoint fields. The cloud presets keep whatever
+ * key is in the form since the user has to supply their own; the local preset
+ * clears it because local servers run unauthenticated.
  */
 export function applyReadAloudPreset(
   form: ReadAloudFormValues,
@@ -76,6 +85,7 @@ export function applyReadAloudPreset(
     case "openai":
       return {
         ...form,
+        provider: "openai",
         baseUrl: SPEECH_DEFAULT_BASE_URL,
         model: SPEECH_DEFAULT_MODEL,
         voice: SPEECH_DEFAULT_VOICE,
@@ -83,8 +93,20 @@ export function applyReadAloudPreset(
         dialect: "plain",
         cjkVoice: "",
       };
+    case "gemini":
+      return {
+        ...form,
+        provider: "gemini",
+        baseUrl: SPEECH_GEMINI_BASE_URL,
+        model: SPEECH_GEMINI_MODEL,
+        voice: SPEECH_GEMINI_VOICE,
+        maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
+        dialect: "plain",
+        cjkVoice: "",
+      };
     case "local":
       return {
+        provider: "openai",
         baseUrl: "http://localhost:8880/v1",
         apiKey: "",
         model: "kokoro",
@@ -102,6 +124,7 @@ export function applyReadAloudPreset(
 export function isReadAloudFormDirty(form: ReadAloudFormValues, saved: SpeechSettings): boolean {
   const savedForm = readAloudFormFromSettings(saved);
   return (
+    form.provider !== savedForm.provider ||
     form.baseUrl.trim() !== savedForm.baseUrl ||
     form.apiKey.trim() !== savedForm.apiKey ||
     form.model.trim() !== savedForm.model ||
@@ -133,6 +156,10 @@ export function validateReadAloudForm(
     if (protocol !== "http:" && protocol !== "https:") {
       errors.baseUrl = "Enter an http:// or https:// URL.";
     }
+  }
+  const apiKey = form.apiKey.trim();
+  if (form.provider === "gemini" && apiKey.length === 0) {
+    errors.apiKey = "Gemini needs an API key.";
   }
   const model = form.model.trim();
   if (model.length === 0) errors.model = "Enter a model name.";
@@ -169,15 +196,17 @@ export function validateReadAloudForm(
   return {
     ok: true,
     settings: {
+      provider: form.provider,
       baseUrl,
-      apiKey: form.apiKey.trim(),
+      apiKey,
       model,
       voice,
       maxCharsPerRequest,
-      dialect: form.dialect,
+      // Kokoro markers mean nothing to Gemini, which would speak them.
+      dialect: form.provider === "gemini" ? "plain" : form.dialect,
       // Only the Kokoro dialect can route a run to another voice, so a value
       // left over from switching back never reaches the endpoint.
-      cjkVoice: form.dialect === "kokoro" ? form.cjkVoice.trim() : "",
+      cjkVoice: form.provider === "openai" && form.dialect === "kokoro" ? form.cjkVoice.trim() : "",
       summaryBaseUrl,
       summaryModel,
     },
