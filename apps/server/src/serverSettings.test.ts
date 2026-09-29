@@ -1313,10 +1313,12 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  const firstKey = "sk-first-account-aaaa";
+  const secondKey = "sk-second-account-bbbb";
   const speechSettings = {
     provider: "openai",
     baseUrl: "https://api.openai.com/v1",
-    apiKey: "sk-speech-secret",
+    apiKeys: [firstKey, secondKey],
     model: "gpt-4o-mini-tts",
     voice: "alloy",
     maxCharsPerRequest: 4096,
@@ -1325,55 +1327,106 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     summaryBaseUrl: "",
     summaryModel: "",
   } as const;
+  const reloadSettings = Effect.gen(function* () {
+    const fresh = yield* ServerSettingsModule.ServerSettingsService;
+    return yield* fresh.getSettings;
+  }).pipe(
+    Effect.provide(
+      Layer.fresh(ServerSettingsModule.layer).pipe(Layer.provide(ServerSecretStore.layer)),
+    ),
+  );
 
-  it.effect("stores the speech API key outside settings.json and hydrates it on read", () =>
+  it.effect("stores the speech API keys outside settings.json and hydrates them on read", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
       const serverConfig = yield* ServerConfig.ServerConfig;
       const fileSystem = yield* FileSystem.FileSystem;
 
       const next = yield* serverSettings.updateSettings({ speech: speechSettings });
-      assert.equal(next.speech?.apiKey, "sk-speech-secret");
+      assert.deepEqual(next.speech?.apiKeys, [firstKey, secondKey]);
 
       const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
-      assert.notInclude(raw, "sk-speech-secret");
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      assert.equal(JSON.parse(raw).speech.apiKey, "\u2022\u2022\u2022\u2022\u2022\u2022");
+      assert.notInclude(raw, firstKey);
+      assert.notInclude(raw, secondKey);
 
       const redacted = ServerSettingsModule.redactServerSettingsForClient(next);
-      assert.equal(redacted.speech?.apiKey, "\u2022\u2022\u2022\u2022\u2022\u2022");
+      assert.deepEqual(redacted.speech?.apiKeys, [
+        "\u2022\u2022\u2022\u2022\u2022\u2022aaaa",
+        "\u2022\u2022\u2022\u2022\u2022\u2022bbbb",
+      ]);
       assert.equal(redacted.speech?.voice, "alloy");
 
-      const reloaded = yield* Effect.gen(function* () {
-        const fresh = yield* ServerSettingsModule.ServerSettingsService;
-        return yield* fresh.getSettings;
+      const reloaded = yield* reloadSettings;
+      assert.deepEqual(reloaded.speech?.apiKeys, [firstKey, secondKey]);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("resolves markers sent back so keys can be reordered, removed, and added", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      const saved = yield* serverSettings.updateSettings({ speech: speechSettings });
+      const [firstMarker, secondMarker] =
+        ServerSettingsModule.redactServerSettingsForClient(saved).speech?.apiKeys ?? [];
+
+      const reordered = yield* serverSettings.updateSettings({
+        speech: { ...speechSettings, voice: "nova", apiKeys: [secondMarker!, firstMarker!] },
+      });
+      assert.equal(reordered.speech?.voice, "nova");
+      assert.deepEqual(reordered.speech?.apiKeys, [secondKey, firstKey]);
+
+      const replaced = yield* serverSettings.updateSettings({
+        speech: { ...speechSettings, apiKeys: [secondMarker!, "sk-third-account-cccc"] },
+      });
+      assert.deepEqual(replaced.speech?.apiKeys, [secondKey, "sk-third-account-cccc"]);
+      assert.deepEqual((yield* reloadSettings).speech?.apiKeys, [
+        secondKey,
+        "sk-third-account-cccc",
+      ]);
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("reads a single key saved before there were several", () =>
+    Effect.gen(function* () {
+      const serverConfig = yield* ServerConfig.ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const secretStore = yield* ServerSecretStore.ServerSecretStore;
+      const { apiKeys: _omit, ...legacySpeech } = speechSettings;
+      yield* secretStore.set(
+        ServerSettingsModule.SPEECH_API_KEY_SECRET_NAME,
+        new TextEncoder().encode("sk-legacy-key"),
+      );
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
+        JSON.stringify({
+          speech: { ...legacySpeech, apiKey: "\u2022\u2022\u2022\u2022\u2022\u2022" },
+        }),
+      );
+
+      const saved = yield* Effect.gen(function* () {
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        const loaded = yield* serverSettings.getSettings;
+        assert.deepEqual(loaded.speech?.apiKeys, ["sk-legacy-key"]);
+        return yield* serverSettings.updateSettings({
+          speech: {
+            ...speechSettings,
+            voice: "nova",
+            apiKeys: ["\u2022\u2022\u2022\u2022\u2022\u2022"],
+          },
+        });
       }).pipe(
         Effect.provide(
           Layer.fresh(ServerSettingsModule.layer).pipe(Layer.provide(ServerSecretStore.layer)),
         ),
       );
-      assert.equal(reloaded.speech?.apiKey, "sk-speech-secret");
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
+      assert.deepEqual(saved.speech?.apiKeys, ["sk-legacy-key"]);
+      assert.deepEqual((yield* reloadSettings).speech?.apiKeys, ["sk-legacy-key"]);
+    }).pipe(
+      Effect.provide(ServerSecretStore.layer.pipe(Layer.provideMerge(makeServerSettingsLayer()))),
+    ),
   );
 
-  it.effect("keeps the stored speech API key when the client sends the marker back", () =>
-    Effect.gen(function* () {
-      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
-      yield* serverSettings.updateSettings({ speech: speechSettings });
-
-      const next = yield* serverSettings.updateSettings({
-        speech: {
-          ...speechSettings,
-          voice: "nova",
-          apiKey: "\u2022\u2022\u2022\u2022\u2022\u2022",
-        },
-      });
-      assert.equal(next.speech?.voice, "nova");
-      assert.equal(next.speech?.apiKey, "sk-speech-secret");
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
-  );
-
-  it.effect("removes the speech secret when the key is cleared or read aloud is turned off", () =>
+  it.effect("removes the speech secret when the keys are cleared or read aloud is turned off", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
       const serverConfig = yield* ServerConfig.ServerConfig;
@@ -1387,11 +1440,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.isTrue(yield* fileSystem.exists(secretPath));
 
       const cleared = yield* serverSettings.updateSettings({
-        speech: { ...speechSettings, apiKey: "" },
+        speech: { ...speechSettings, apiKeys: [] },
       });
-      assert.equal(cleared.speech?.apiKey, "");
+      assert.deepEqual(cleared.speech?.apiKeys, []);
       assert.isFalse(yield* fileSystem.exists(secretPath));
-      assert.equal(ServerSettingsModule.redactServerSettingsForClient(cleared).speech?.apiKey, "");
 
       yield* serverSettings.updateSettings({ speech: speechSettings });
       assert.isTrue(yield* fileSystem.exists(secretPath));

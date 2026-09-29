@@ -15,14 +15,18 @@ import {
   type SpeechSettings,
 } from "@t3tools/contracts";
 
-/** What the server sends in place of a stored key; sending it back keeps the key. */
+/**
+ * What the server sends in place of a stored key, followed by its last four
+ * characters; sending it back keeps that key.
+ */
 export const SPEECH_API_KEY_SENTINEL = "••••••";
 export const SPEECH_MIN_CHARS_PER_REQUEST = 200;
 
 export interface ReadAloudFormValues {
   readonly provider: SpeechProvider;
   readonly baseUrl: string;
-  readonly apiKey: string;
+  /** One input per account; blank inputs are dropped on save. */
+  readonly apiKeys: ReadonlyArray<string>;
   readonly model: string;
   readonly voice: string;
   readonly maxCharsPerRequest: string;
@@ -46,7 +50,7 @@ export function defaultSpeechSettings(): SpeechSettings {
   return {
     provider: SPEECH_DEFAULT_PROVIDER,
     baseUrl: SPEECH_DEFAULT_BASE_URL,
-    apiKey: "",
+    apiKeys: [],
     model: SPEECH_DEFAULT_MODEL,
     voice: SPEECH_DEFAULT_VOICE,
     maxCharsPerRequest: SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST,
@@ -61,7 +65,8 @@ export function readAloudFormFromSettings(settings: SpeechSettings): ReadAloudFo
   return {
     provider: settings.provider,
     baseUrl: settings.baseUrl,
-    apiKey: settings.apiKey,
+    // An empty list still shows one input to type into.
+    apiKeys: settings.apiKeys.length > 0 ? settings.apiKeys : [""],
     model: settings.model,
     voice: settings.voice,
     maxCharsPerRequest: String(settings.maxCharsPerRequest),
@@ -74,8 +79,8 @@ export function readAloudFormFromSettings(settings: SpeechSettings): ReadAloudFo
 
 /**
  * Presets only prefill the endpoint fields. The cloud presets keep whatever
- * key is in the form since the user has to supply their own; the local preset
- * clears it because local servers run unauthenticated.
+ * keys are in the form since the user has to supply their own; the local preset
+ * clears them because local servers run unauthenticated.
  */
 export function applyReadAloudPreset(
   form: ReadAloudFormValues,
@@ -108,7 +113,7 @@ export function applyReadAloudPreset(
       return {
         provider: "openai",
         baseUrl: "http://localhost:8880/v1",
-        apiKey: "",
+        apiKeys: [""],
         model: "kokoro",
         voice: "af_bella",
         maxCharsPerRequest: String(SPEECH_DEFAULT_MAX_CHARS_PER_REQUEST),
@@ -121,12 +126,20 @@ export function applyReadAloudPreset(
   }
 }
 
+function formApiKeys(form: ReadAloudFormValues): ReadonlyArray<string> {
+  return form.apiKeys.map((key) => key.trim()).filter((key) => key.length > 0);
+}
+
+function sameKeys(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  return a.length === b.length && a.every((key, index) => key === b[index]);
+}
+
 export function isReadAloudFormDirty(form: ReadAloudFormValues, saved: SpeechSettings): boolean {
   const savedForm = readAloudFormFromSettings(saved);
   return (
     form.provider !== savedForm.provider ||
     form.baseUrl.trim() !== savedForm.baseUrl ||
-    form.apiKey.trim() !== savedForm.apiKey ||
+    !sameKeys(formApiKeys(form), saved.apiKeys) ||
     form.model.trim() !== savedForm.model ||
     form.voice.trim() !== savedForm.voice ||
     form.maxCharsPerRequest.trim() !== savedForm.maxCharsPerRequest ||
@@ -157,9 +170,9 @@ export function validateReadAloudForm(
       errors.baseUrl = "Enter an http:// or https:// URL.";
     }
   }
-  const apiKey = form.apiKey.trim();
-  if (form.provider === "gemini" && apiKey.length === 0) {
-    errors.apiKey = "Gemini needs an API key.";
+  const apiKeys = formApiKeys(form);
+  if (form.provider === "gemini" && apiKeys.length === 0) {
+    errors.apiKeys = "Gemini needs an API key.";
   }
   const model = form.model.trim();
   if (model.length === 0) errors.model = "Enter a model name.";
@@ -198,7 +211,7 @@ export function validateReadAloudForm(
     settings: {
       provider: form.provider,
       baseUrl,
-      apiKey,
+      apiKeys,
       model,
       voice,
       maxCharsPerRequest,

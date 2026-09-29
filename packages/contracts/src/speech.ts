@@ -1,5 +1,6 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import { MessageId, ThreadId, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas.ts";
 
@@ -93,15 +94,22 @@ export const SPEECH_DIALECT_LABELS: Record<SpeechDialect, string> = {
   kokoro: "Kokoro",
 };
 
-export const SpeechSettings = Schema.Struct({
+const SpeechSettingsFields = Schema.Struct({
   /** Defaults keep settings saved before Gemini support on the OpenAI shape. */
   provider: SpeechProvider.pipe(
     Schema.withDecodingDefault(Effect.succeed(SPEECH_DEFAULT_PROVIDER)),
   ),
   /** Root of the provider's API, cloud or local. */
   baseUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
-  /** Optional: local servers commonly run without authentication. Redacted for clients. */
-  apiKey: TrimmedString.check(Schema.isMaxLength(4096)),
+  /**
+   * One key per account, tried in order: a key that is rate limited or
+   * rejected sits out its cooldown while the next one takes the request.
+   * Empty for local servers, which commonly run without authentication.
+   * Redacted for clients.
+   */
+  apiKeys: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(4096))).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   model: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   voice: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
   /** Per-request character ceiling; long messages are chunked below it. */
@@ -128,6 +136,23 @@ export const SpeechSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed("")),
   ),
 });
+
+/** Settings saved before multiple keys held one `apiKey`; it becomes the first entry. */
+export const SpeechSettings = Schema.Struct({
+  ...SpeechSettingsFields.fields,
+  apiKey: Schema.optionalKey(Schema.String),
+}).pipe(
+  Schema.decodeTo(
+    Schema.toType(SpeechSettingsFields),
+    SchemaTransformation.transform({
+      decode: ({ apiKey, ...settings }) =>
+        apiKey !== undefined && apiKey.trim().length > 0 && settings.apiKeys.length === 0
+          ? { ...settings, apiKeys: [apiKey.trim()] }
+          : settings,
+      encode: (settings) => settings,
+    }),
+  ),
+);
 export type SpeechSettings = typeof SpeechSettings.Type;
 
 export const SpeechSource = Schema.Union([
@@ -226,7 +251,12 @@ export type SpeechServiceFailureReason = typeof SpeechServiceFailureReason.Type;
 
 export class SpeechServiceError extends Schema.TaggedError<SpeechServiceError>()(
   "SpeechServiceError",
-  { reason: SpeechServiceFailureReason, detail: TrimmedString },
+  {
+    reason: SpeechServiceFailureReason,
+    detail: TrimmedString,
+    /** How long the service asked us to wait, when it said. */
+    retryAfterMs: Schema.optionalKey(Schema.Finite),
+  },
 ) {
   override get message(): string {
     switch (this.reason) {

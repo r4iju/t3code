@@ -20,7 +20,7 @@ function responseMimeType(contentType: string | undefined): string {
 }
 
 export const synthesizeSpeechChunk = Effect.fn("OpenAiSpeechClient.synthesizeSpeechChunk")(
-  function* (settings: SpeechSettings, input: string) {
+  function* (settings: SpeechSettings, apiKey: string, input: string) {
     const url = `${settings.baseUrl.replace(/\/+$/, "")}/audio/speech`;
     const request = HttpClientRequest.post(url).pipe(
       HttpClientRequest.bodyJsonUnsafe({
@@ -32,8 +32,8 @@ export const synthesizeSpeechChunk = Effect.fn("OpenAiSpeechClient.synthesizeSpe
         // in. No other endpoint ever sees the field.
         ...(settings.dialect === "kokoro" ? { allow_voice_tags: true } : {}),
       }),
-      settings.apiKey.length > 0
-        ? HttpClientRequest.setHeader("Authorization", `Bearer ${settings.apiKey}`)
+      apiKey.length > 0
+        ? HttpClientRequest.setHeader("Authorization", `Bearer ${apiKey}`)
         : (request) => request,
     );
     return yield* sendSpeechRequest(request, (response) =>
