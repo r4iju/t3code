@@ -35,6 +35,22 @@ export function formatReadAloudPlaybackRate(rate: ReadAloudPlaybackRate): string
 }
 
 /**
+ * Which request shape the endpoint speaks. Gemini's TTS models are only
+ * reachable through its own interactions API, not its OpenAI-compatible layer.
+ */
+export const SPEECH_PROVIDERS = ["openai", "gemini"] as const;
+export const SpeechProvider = Schema.Literals(SPEECH_PROVIDERS);
+export type SpeechProvider = typeof SpeechProvider.Type;
+export const SPEECH_DEFAULT_PROVIDER: SpeechProvider = "openai";
+export const SPEECH_PROVIDER_LABELS: Record<SpeechProvider, string> = {
+  openai: "OpenAI-compatible",
+  gemini: "Gemini",
+};
+export const SPEECH_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+export const SPEECH_GEMINI_MODEL = "gemini-3.8-flash-tts";
+export const SPEECH_GEMINI_VOICE = "Kore";
+
+/**
  * What an endpoint understands beyond the OpenAI request shape. Kokoro reads
  * inline `[pause:Ns]` and `[voice:name]` markers, which lets read aloud put a
  * beat between bullets and hand Japanese to a Japanese voice; every other
@@ -78,7 +94,11 @@ export const SPEECH_DIALECT_LABELS: Record<SpeechDialect, string> = {
 };
 
 export const SpeechSettings = Schema.Struct({
-  /** Any endpoint that speaks the OpenAI speech API shape, cloud or local. */
+  /** Defaults keep settings saved before Gemini support on the OpenAI shape. */
+  provider: SpeechProvider.pipe(
+    Schema.withDecodingDefault(Effect.succeed(SPEECH_DEFAULT_PROVIDER)),
+  ),
+  /** Root of the provider's API, cloud or local. */
   baseUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
   /** Optional: local servers commonly run without authentication. Redacted for clients. */
   apiKey: TrimmedString.check(Schema.isMaxLength(4096)),

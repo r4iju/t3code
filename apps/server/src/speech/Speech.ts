@@ -1,8 +1,7 @@
 /**
  * Speech — read-aloud synthesis owned by the environment.
  *
- * Turns assistant Markdown into audio via the configured OpenAI-shaped
- * endpoint, one segment per call, caches each segment under a content hash in
+ * Turns assistant Markdown into audio via the configured speech provider, one segment per call, caches each segment under a content hash in
  * `speechDir`, and hands back a signed asset URL. Segmenting is deterministic
  * from the prepared text, so clients ask for segment 0, 1, 2… and play each as
  * it lands instead of waiting for the whole message. The cache is a
@@ -51,7 +50,8 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { synthesizeSpeechChunk } from "./OpenAiSpeechClient.ts";
+import * as GeminiSpeechClient from "./GeminiSpeechClient.ts";
+import * as OpenAiSpeechClient from "./OpenAiSpeechClient.ts";
 import { summarizeTable } from "./TableSummaryClient.ts";
 
 export class Speech extends Context.Service<
@@ -100,6 +100,11 @@ const CACHE_EXTENSIONS: ReadonlyArray<SpeechAudioExtension> = [
 ];
 
 const textEncoder = new TextEncoder();
+
+const SPEECH_CLIENTS = {
+  openai: OpenAiSpeechClient.synthesizeSpeechChunk,
+  gemini: GeminiSpeechClient.synthesizeSpeechChunk,
+} satisfies Record<SpeechSettings["provider"], unknown>;
 
 /**
  * Deletes least-recently-used files until the directory fits the cap. Runs
@@ -304,7 +309,7 @@ export const make = Effect.gen(function* () {
             .pipe(Effect.ignore);
           return yield* issueResult(cached, plans.length);
         }
-        const audio = yield* synthesizeSpeechChunk(speech, segmentText);
+        const audio = yield* SPEECH_CLIENTS[speech.provider](speech, segmentText);
         const extension = EXTENSION_BY_MIME_TYPE[audio.mimeType];
         if (extension === undefined) {
           return yield* new SpeechServiceError({

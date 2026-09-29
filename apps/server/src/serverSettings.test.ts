@@ -1314,6 +1314,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
   );
 
   const speechSettings = {
+    provider: "openai",
     baseUrl: "https://api.openai.com/v1",
     apiKey: "sk-speech-secret",
     model: "gpt-4o-mini-tts",

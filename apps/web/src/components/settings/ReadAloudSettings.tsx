@@ -5,8 +5,11 @@ import {
   READ_ALOUD_PLAYBACK_RATES,
   SPEECH_DIALECT_LABELS,
   SPEECH_DIALECTS,
+  SPEECH_PROVIDER_LABELS,
+  SPEECH_PROVIDERS,
   SPEECH_SUMMARY_DEFAULT_BASE_URL,
   type SpeechDialect,
+  type SpeechProvider,
   type SpeechSettings,
 } from "@t3tools/contracts";
 import { SquareIcon, Volume2Icon } from "lucide-react";
@@ -40,7 +43,7 @@ import {
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 
-const PRESETS: ReadonlyArray<ReadAloudPreset> = ["openai", "local"];
+const PRESETS: ReadonlyArray<ReadAloudPreset> = ["openai", "gemini", "local"];
 
 export function ReadAloudSettings() {
   const speech = usePrimarySettings((settings) => settings.speech);
@@ -51,7 +54,7 @@ export function ReadAloudSettings() {
       <SettingsRow
         {...searchableSetting("read-aloud-enabled")}
         serverScoped
-        description="Play finished agent responses through a speech service such as OpenAI or a local server."
+        description="Play finished agent responses through a speech service such as OpenAI, Gemini, or a local server."
         control={
           <Switch
             checked={speech !== null}
@@ -108,9 +111,35 @@ function ReadAloudForm({
   return (
     <>
       <SettingsRow
+        {...searchableSetting("read-aloud-provider")}
+        serverScoped
+        description="The request shape the endpoint speaks. Gemini's speech models only answer through their own API."
+        control={
+          <Select
+            value={form.provider}
+            onValueChange={(value) => update({ provider: value as SpeechProvider })}
+          >
+            <SelectTrigger size="sm" className="w-full sm:w-72" aria-label="Speech API">
+              <SelectValue>{SPEECH_PROVIDER_LABELS[form.provider]}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup align="end" alignItemWithTrigger={false}>
+              {SPEECH_PROVIDERS.map((candidate) => (
+                <SelectItem hideIndicator key={candidate} value={candidate}>
+                  {SPEECH_PROVIDER_LABELS[candidate]}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        }
+      />
+      <SettingsRow
         {...searchableSetting("read-aloud-base-url")}
         serverScoped
-        description="Any endpoint that speaks the OpenAI speech API."
+        description={
+          form.provider === "gemini"
+            ? "The Gemini API root."
+            : "Any endpoint that speaks the OpenAI speech API."
+        }
         status={errors.baseUrl}
         control={
           <Input
@@ -127,6 +156,7 @@ function ReadAloudForm({
         {...searchableSetting("read-aloud-api-key")}
         serverScoped
         description="Stored on the server and never sent back to clients. Leave blank for local servers."
+        status={errors.apiKey}
         control={
           <Input
             size="sm"
@@ -167,29 +197,31 @@ function ReadAloudForm({
           />
         }
       />
-      <SettingsRow
-        {...searchableSetting("read-aloud-dialect")}
-        serverScoped
-        description="Kokoro reads inline pause and voice markers, so responses get a beat between bullets. Other endpoints would speak the markers out loud."
-        control={
-          <Select
-            value={form.dialect}
-            onValueChange={(value) => update({ dialect: value as SpeechDialect })}
-          >
-            <SelectTrigger size="sm" className="w-full sm:w-72" aria-label="Speech dialect">
-              <SelectValue>{SPEECH_DIALECT_LABELS[form.dialect]}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup align="end" alignItemWithTrigger={false}>
-              {SPEECH_DIALECTS.map((candidate) => (
-                <SelectItem hideIndicator key={candidate} value={candidate}>
-                  {SPEECH_DIALECT_LABELS[candidate]}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        }
-      />
-      {form.dialect === "kokoro" ? (
+      {form.provider === "openai" ? (
+        <SettingsRow
+          {...searchableSetting("read-aloud-dialect")}
+          serverScoped
+          description="Kokoro reads inline pause and voice markers, so responses get a beat between bullets. Other endpoints would speak the markers out loud."
+          control={
+            <Select
+              value={form.dialect}
+              onValueChange={(value) => update({ dialect: value as SpeechDialect })}
+            >
+              <SelectTrigger size="sm" className="w-full sm:w-72" aria-label="Speech dialect">
+                <SelectValue>{SPEECH_DIALECT_LABELS[form.dialect]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {SPEECH_DIALECTS.map((candidate) => (
+                  <SelectItem hideIndicator key={candidate} value={candidate}>
+                    {SPEECH_DIALECT_LABELS[candidate]}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+      ) : null}
+      {form.provider === "openai" && form.dialect === "kokoro" ? (
         <SettingsRow
           {...searchableSetting("read-aloud-cjk-voice")}
           serverScoped

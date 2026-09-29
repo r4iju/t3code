@@ -19,6 +19,7 @@ import {
 } from "./ReadAloudSettings.logic";
 
 const savedSettings = {
+  provider: "openai",
   baseUrl: "https://tts.example.com/v1",
   apiKey: SPEECH_API_KEY_SENTINEL,
   model: "tts-1",
@@ -34,6 +35,7 @@ describe("presets", () => {
   it("OpenAI prefills the endpoint fields and keeps the entered key", () => {
     const form = applyReadAloudPreset(readAloudFormFromSettings(savedSettings), "openai");
     expect(form).toEqual({
+      provider: "openai",
       baseUrl: SPEECH_DEFAULT_BASE_URL,
       apiKey: SPEECH_API_KEY_SENTINEL,
       model: SPEECH_DEFAULT_MODEL,
@@ -49,6 +51,7 @@ describe("presets", () => {
   it("Local server points at a Kokoro-style endpoint without a key", () => {
     const form = applyReadAloudPreset(readAloudFormFromSettings(savedSettings), "local");
     expect(form).toEqual({
+      provider: "openai",
       baseUrl: "http://localhost:8880/v1",
       apiKey: "",
       model: "kokoro",
@@ -71,6 +74,7 @@ describe("patches", () => {
 
   it("a valid form becomes a trimmed whole speech block", () => {
     const result = validateReadAloudForm({
+      provider: "openai",
       baseUrl: " https://tts.example.com/v1 ",
       apiKey: " sk-test ",
       model: " tts-1 ",
@@ -84,6 +88,7 @@ describe("patches", () => {
     expect(result).toEqual({
       ok: true,
       settings: {
+        provider: "openai",
         baseUrl: "https://tts.example.com/v1",
         apiKey: "sk-test",
         model: "tts-1",
