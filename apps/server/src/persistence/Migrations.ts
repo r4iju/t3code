@@ -67,6 +67,7 @@ import Migration0052 from "./Migrations/052_ProjectionThreadTitleState.ts";
 import Migration0053 from "./Migrations/053_PullRequestFilesViewed.ts";
 import Migration0054 from "./Migrations/054_AuthSessionLastSeenAt.ts";
 import Migration0055 from "./Migrations/055_ProjectionThreadUsageLimit.ts";
+import Migration0056 from "./Migrations/054_ProjectionThreadsAutoSettleDisabledAt.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -134,6 +135,9 @@ const migrationEntries = [
   [53, "PullRequestFilesViewed", Migration0053],
   [54, "AuthSessionLastSeenAt", Migration0054],
   [55, "ProjectionThreadUsageLimit", Migration0055],
+  // Fork ids are append-only: live databases recorded 54-55 as fork migrations,
+  // so upstream migrations that collide take the next free id here.
+  [56, "ProjectionThreadsAutoSettleDisabledAt", Migration0056],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
