@@ -47,8 +47,6 @@ import {
   ThreadPullRequestSyncedPayload,
   ThreadPullRequestUnlinkedPayload,
   ThreadSnoozedPayload,
-  ThreadUsageLimitSetPayload,
-  ThreadAutoResumeSetPayload,
   ThreadUnpinnedPayload,
   ThreadUnarchivedPayload,
   ThreadUnsettledPayload,
@@ -460,7 +458,6 @@ export function projectEvent(
             autoSettleDisabledAt: null,
             snoozedUntil: null,
             snoozedAt: null,
-            usageLimit: null,
             deletedAt: null,
             messages: [],
             activities: [],
@@ -570,31 +567,6 @@ export function projectEvent(
             snoozedAt: null,
             updatedAt: payload.updatedAt,
           }),
-        })),
-      );
-
-    case "thread.usage-limit-set":
-      return decodeForEvent(ThreadUsageLimitSetPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            usageLimit: payload.usageLimit,
-          }),
-        })),
-      );
-
-    case "thread.auto-resume-set":
-      return decodeForEvent(ThreadAutoResumeSetPayload, event.payload, event.type, "payload").pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          threads: nextBase.threads.map((thread) =>
-            thread.id === payload.threadId && thread.usageLimit
-              ? {
-                  ...thread,
-                  usageLimit: { ...thread.usageLimit, resumeScheduled: payload.scheduled },
-                }
-              : thread,
-          ),
         })),
       );
 

@@ -613,12 +613,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
         ? ["Continue threads after restarts"]
         : []),
-      ...(settings.autoResumeAfterUsageLimit !==
-        DEFAULT_UNIFIED_SETTINGS.autoResumeAfterUsageLimit ||
-      settings.autoResumeMessage !== DEFAULT_UNIFIED_SETTINGS.autoResumeMessage ||
-      settings.autoResumeDisablesFastMode !== DEFAULT_UNIFIED_SETTINGS.autoResumeDisablesFastMode
-        ? ["Resume after usage limits"]
-        : []),
       ...(isBackgroundActivityDirty ? ["Background activity"] : []),
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
@@ -691,9 +685,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.responseStreamingMode,
       settings.enableProviderUpdateChecks,
       settings.continueThreadsAfterServerUpdate,
-      settings.autoResumeAfterUsageLimit,
-      settings.autoResumeMessage,
-      settings.autoResumeDisablesFastMode,
       settings.sidebarAutoSettleAfterDays,
       settings.sidebarAutoSettleOnMerge,
       settings.sidebarProjectGroupingMode,
@@ -801,9 +792,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
-      autoResumeAfterUsageLimit: DEFAULT_UNIFIED_SETTINGS.autoResumeAfterUsageLimit,
-      autoResumeMessage: DEFAULT_UNIFIED_SETTINGS.autoResumeMessage,
-      autoResumeDisablesFastMode: DEFAULT_UNIFIED_SETTINGS.autoResumeDisablesFastMode,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
       backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
       automaticGitFetchInterval: DEFAULT_UNIFIED_SETTINGS.automaticGitFetchInterval,
@@ -2854,93 +2842,6 @@ export function GeneralSettingsPanel() {
                 updateSettings({ continueThreadsAfterServerUpdate: Boolean(checked) })
               }
               aria-label="Continue threads after restarts"
-            />
-          }
-        />
-
-        <SettingsRow
-          {...searchableSetting("auto-resume-after-usage-limit")}
-          serverScoped
-          settingKeys={["autoResumeAfterUsageLimit"]}
-          description="When a provider usage limit stops a thread, send the resume message once the limit resets. Threads can also opt in from the limit notice."
-          resetAction={
-            settings.autoResumeAfterUsageLimit !==
-            DEFAULT_UNIFIED_SETTINGS.autoResumeAfterUsageLimit ? (
-              <SettingResetButton
-                label="resume after usage limits"
-                onClick={() =>
-                  updateSettings({
-                    autoResumeAfterUsageLimit: DEFAULT_UNIFIED_SETTINGS.autoResumeAfterUsageLimit,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <ScopedSwitch
-              settingKeys={["autoResumeAfterUsageLimit"]}
-              checked={settings.autoResumeAfterUsageLimit}
-              onCheckedChange={(checked) =>
-                updateSettings({ autoResumeAfterUsageLimit: Boolean(checked) })
-              }
-              aria-label="Resume after usage limits"
-            />
-          }
-        />
-
-        <SettingsRow
-          {...searchableSetting("auto-resume-message")}
-          serverScoped
-          settingKeys={["autoResumeMessage"]}
-          description="What a resumed thread is sent once its usage limit resets."
-          resetAction={
-            settings.autoResumeMessage !== DEFAULT_UNIFIED_SETTINGS.autoResumeMessage ? (
-              <SettingResetButton
-                label="resume message"
-                onClick={() =>
-                  updateSettings({ autoResumeMessage: DEFAULT_UNIFIED_SETTINGS.autoResumeMessage })
-                }
-              />
-            ) : null
-          }
-          control={
-            <DraftInput
-              size="sm"
-              className="w-full sm:w-72"
-              value={settings.autoResumeMessage}
-              onCommit={(next) => updateSettings({ autoResumeMessage: next })}
-              placeholder={DEFAULT_UNIFIED_SETTINGS.autoResumeMessage}
-              aria-label="Resume message"
-            />
-          }
-        />
-
-        <SettingsRow
-          {...searchableSetting("auto-resume-disables-fast-mode")}
-          serverScoped
-          settingKeys={["autoResumeDisablesFastMode"]}
-          description="Resumed threads continue without fast mode, since nobody is waiting on them."
-          resetAction={
-            settings.autoResumeDisablesFastMode !==
-            DEFAULT_UNIFIED_SETTINGS.autoResumeDisablesFastMode ? (
-              <SettingResetButton
-                label="turn off fast mode when resuming"
-                onClick={() =>
-                  updateSettings({
-                    autoResumeDisablesFastMode: DEFAULT_UNIFIED_SETTINGS.autoResumeDisablesFastMode,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <ScopedSwitch
-              settingKeys={["autoResumeDisablesFastMode"]}
-              checked={settings.autoResumeDisablesFastMode}
-              onCheckedChange={(checked) =>
-                updateSettings({ autoResumeDisablesFastMode: Boolean(checked) })
-              }
-              aria-label="Turn off fast mode when resuming"
             />
           }
         />

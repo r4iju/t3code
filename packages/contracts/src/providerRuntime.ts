@@ -196,7 +196,6 @@ const ConfigWarningType = Schema.Literal("config.warning");
 const DeprecationNoticeType = Schema.Literal("deprecation.notice");
 const FilesPersistedType = Schema.Literal("files.persisted");
 const ToolDeniedType = Schema.Literal("tool.denied");
-const TurnUsageLimitedType = Schema.Literal("turn.usage-limited");
 const RuntimeWarningType = Schema.Literal("runtime.warning");
 const RuntimeErrorType = Schema.Literal("runtime.error");
 
@@ -802,16 +801,6 @@ const ToolDeniedPayload = Schema.Struct({
 });
 export type ToolDeniedPayload = typeof ToolDeniedPayload.Type;
 
-/**
- * A provider usage limit stopped or parked the turn. Emitted alongside the
- * adapter's own warning or failure text; `resetsAt` is omitted when the
- * provider did not say when the limit resets.
- */
-const TurnUsageLimitedPayload = Schema.Struct({
-  resetsAt: Schema.optional(IsoDateTime),
-});
-export type TurnUsageLimitedPayload = typeof TurnUsageLimitedPayload.Type;
-
 const RuntimeWarningPayload = Schema.Struct({
   message: TrimmedNonEmptyStringSchema,
   detail: Schema.optional(Schema.Unknown),
@@ -1172,13 +1161,6 @@ const ProviderRuntimeToolDeniedEvent = Schema.Struct({
 });
 export type ProviderRuntimeToolDeniedEvent = typeof ProviderRuntimeToolDeniedEvent.Type;
 
-const ProviderRuntimeTurnUsageLimitedEvent = Schema.Struct({
-  ...ProviderRuntimeEventBase.fields,
-  type: TurnUsageLimitedType,
-  payload: TurnUsageLimitedPayload,
-});
-export type ProviderRuntimeTurnUsageLimitedEvent = typeof ProviderRuntimeTurnUsageLimitedEvent.Type;
-
 const ProviderRuntimeWarningEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: RuntimeWarningType,
@@ -1241,7 +1223,6 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeDeprecationNoticeEvent,
   ProviderRuntimeFilesPersistedEvent,
   ProviderRuntimeToolDeniedEvent,
-  ProviderRuntimeTurnUsageLimitedEvent,
   ProviderRuntimeWarningEvent,
   ProviderRuntimeErrorEvent,
 ]);

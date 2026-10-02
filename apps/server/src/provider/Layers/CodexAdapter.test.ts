@@ -2915,7 +2915,7 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startUsageLimitRuntime();
       const eventsFiber = yield* adapter.streamEvents.pipe(
-        Stream.take(7),
+        Stream.take(5),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -2947,10 +2947,8 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
         [
           "account.rate-limits.updated",
           "runtime.error",
-          "turn.usage-limited",
           "turn.completed",
           "runtime.error",
-          "turn.usage-limited",
           "turn.completed",
         ],
       );
@@ -2970,7 +2968,7 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startUsageLimitRuntime();
       const eventsFiber = yield* adapter.streamEvents.pipe(
-        Stream.take(4),
+        Stream.take(3),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -2997,8 +2995,6 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
         completed?.payload.errorMessage,
         "Codex usage limit reached. The session limit resets in 3h 20m. Send the message again once the limit resets.",
       );
-      const limited = events.find((event) => event.type === "turn.usage-limited");
-      NodeAssert.equal(limited?.payload.resetsAt, "2026-01-01T03:20:00.000Z");
     }),
   );
 
@@ -3006,7 +3002,7 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startUsageLimitRuntime();
       const eventsFiber = yield* adapter.streamEvents.pipe(
-        Stream.take(4),
+        Stream.take(3),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -3040,7 +3036,7 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startUsageLimitRuntime();
       const eventsFiber = yield* adapter.streamEvents.pipe(
-        Stream.take(3),
+        Stream.take(2),
         Stream.runCollect,
         Effect.forkChild,
       );
@@ -3058,10 +3054,8 @@ usageLimitLayer("CodexAdapterLive usage limits", (it) => {
       const expected = "Codex usage limit reached. Send the message again once the limit resets.";
       NodeAssert.deepStrictEqual(
         events.map((event) => event.type),
-        ["runtime.error", "turn.usage-limited", "turn.completed"],
+        ["runtime.error", "turn.completed"],
       );
-      const limited = events.find((event) => event.type === "turn.usage-limited");
-      NodeAssert.equal(limited?.payload.resetsAt, undefined);
       const runtimeError = events.find((event) => event.type === "runtime.error");
       NodeAssert.equal(runtimeError?.payload.message, expected);
       const completed = events.find((event) => event.type === "turn.completed");

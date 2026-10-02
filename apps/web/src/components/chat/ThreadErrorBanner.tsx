@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo } from "react";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { CircleAlertIcon, XIcon } from "lucide-react";
@@ -37,15 +37,10 @@ export function isThreadErrorBannerDismissedForSession(bannerKey: string | null)
 
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
-  summary,
-  action,
   onDismiss,
   chatGptUsageLimit = false,
 }: {
   error: string | null;
-  /** Shown instead of the error; the full error stays in the tooltip. */
-  summary?: string;
-  action?: ReactNode;
   onDismiss?: () => void;
   chatGptUsageLimit?: boolean;
 }) {

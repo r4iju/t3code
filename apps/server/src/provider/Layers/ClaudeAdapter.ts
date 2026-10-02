@@ -74,7 +74,6 @@ import { HostProcessIsExecutable } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
-import * as Option from "effect/Option";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -2537,28 +2536,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     });
   });
 
-  const emitTurnUsageLimited = Effect.fn("emitTurnUsageLimited")(function* (
-    context: ClaudeSessionContext,
-    resetsAtEpochSeconds: number | undefined,
-  ) {
-    const turnState = context.turnState;
-    const stamp = yield* makeEventStamp();
-    const resetsAt =
-      resetsAtEpochSeconds === undefined
-        ? Option.none()
-        : Option.map(DateTime.make(resetsAtEpochSeconds * 1000), DateTime.formatIso);
-    yield* offerRuntimeEvent({
-      type: "turn.usage-limited",
-      eventId: stamp.eventId,
-      provider: PROVIDER,
-      createdAt: stamp.createdAt,
-      threadId: context.session.threadId,
-      ...(turnState ? { turnId: asCanonicalTurnId(turnState.turnId) } : {}),
-      payload: Option.isSome(resetsAt) ? { resetsAt: resetsAt.value } : {},
-      providerRefs: nativeProviderRefs(context),
-    });
-  });
-
   const emitThreadTokenUsage = Effect.fn("emitThreadTokenUsage")(function* (
     context: ClaudeSessionContext,
     usage: ThreadTokenUsageSnapshot | undefined,
@@ -3516,16 +3493,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         : undefined);
     const { status, errorMessage } = resultOutcome(message, failureHint);
 
-    // A rejected rate_limit_event already reported the stop with its reset;
-    // an assistant-text limit or a blocking_limit result carries none.
-    if (
-      status === "failed" &&
-      turn?.rejectedRateLimitTypes.size === 0 &&
-      (turn.latestAssistantRateLimited || message.terminal_reason === "blocking_limit")
-    ) {
-      yield* emitTurnUsageLimited(context, undefined);
-    }
-
     if (status === "failed") {
       yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.");
     }
@@ -4166,7 +4133,6 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             names,
           );
           yield* emitRuntimeWarning(context, notice, rateLimitInfo);
-          yield* emitTurnUsageLimited(context, rateLimitInfo.resetsAt);
         }
       }
       return;
