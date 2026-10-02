@@ -20,7 +20,7 @@
 # carries its own installer copy that can drift.
 #
 # Usage: t3-alpha-deploy <zip> [host ...] [--force]
-#   hosts default to: local emanuel@matebook.lan emanuelfranzen@Mac.lan
+#   hosts default to: local emanuel@matebook.lan sm-em.local
 #   --force  install even where agent turns are running
 # Exits 1 if any host failed.
 
@@ -34,7 +34,7 @@ for arg in "$@"; do
   esac
 done
 [[ -f "$ZIP" ]] || { echo "usage: t3-alpha-deploy <zip> [host ...] [--force]" >&2; exit 2; }
-[[ ${#HOSTS[@]} -gt 0 ]] || HOSTS=(local emanuel@matebook.lan emanuelfranzen@Mac.lan)
+[[ ${#HOSTS[@]} -gt 0 ]] || HOSTS=(local emanuel@matebook.lan sm-em.local)
 ZIP="$(cd "$(dirname "$ZIP")" && pwd)/$(basename "$ZIP")"
 INSTALLER="$(cd "$(dirname "$0")" && pwd)/t3-alpha-install"
 INFO_PLIST="$(unzip -Z1 "$ZIP" | grep -E '^[^/]+\.app/Contents/Info\.plist$')"
