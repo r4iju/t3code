@@ -21,6 +21,7 @@ import {
   type SpeechSource,
   WS_METHODS,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { Atom } from "effect/unstable/reactivity";
 import { useSyncExternalStore } from "react";
 
@@ -211,8 +212,10 @@ export function readLatestAloud(threadRef: ScopedThreadRef | null): void {
     warn("Read aloud is off", "Turn it on under Settings → General → Read aloud.");
     return;
   }
-  const thread = appAtomRegistry.get(environmentThreadDetails.detailAtom(threadRef));
-  const latest = findLatestSpeakableAssistantMessage(thread?.messages ?? []);
+  const thread = appAtomRegistry.get(environmentThreadDetails.stateAtom(threadRef));
+  const latest = findLatestSpeakableAssistantMessage(
+    Option.getOrUndefined(thread.data)?.messages ?? [],
+  );
   switch (latest.kind) {
     case "streaming":
       warn("Response still in progress", "Wait for the response to finish before reading it.");

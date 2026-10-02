@@ -1,5 +1,5 @@
 import { READ_ALOUD_SAMPLE_KEY } from "@t3tools/client-runtime/read-aloud";
-import type { OrchestrationMessage, ScopedThreadRef } from "@t3tools/contracts";
+import type { OrchestrationV2ConversationMessage, ScopedThreadRef } from "@t3tools/contracts";
 import { prepareSpeechText } from "@t3tools/shared/speechText";
 
 /** Whether playback keyed by `key` may continue while `threadRef` is the active thread. */
@@ -9,8 +9,8 @@ export function readAloudKeyBelongsToThread(key: string, threadRef: ScopedThread
 }
 
 type SpeakableMessageCandidate = Pick<
-  OrchestrationMessage,
-  "id" | "role" | "text" | "streaming" | "turnId"
+  OrchestrationV2ConversationMessage,
+  "id" | "role" | "text" | "streaming" | "runId"
 >;
 
 export type LatestSpeakableAssistantMessage<Message extends SpeakableMessageCandidate> =
@@ -21,7 +21,7 @@ export type LatestSpeakableAssistantMessage<Message extends SpeakableMessageCand
 /**
  * Picks the message "read latest response" should speak: the final assistant
  * message of the most recent response that has prose to read. A response is
- * one turn, or one run of assistant messages after a user message when no turn
+ * one run, or one run of assistant messages after a user message when no run
  * id is known. A still-streaming latest response wins over older ones so the
  * shortcut never reads a stale answer while a new one is arriving.
  */
@@ -36,7 +36,7 @@ export function findLatestSpeakableAssistantMessage<Message extends SpeakableMes
       continue;
     }
     if (message.role !== "assistant") continue;
-    const responseKey = message.turnId ? `turn:${message.turnId}` : `unkeyed:${responseIndex}`;
+    const responseKey = message.runId ? `turn:${message.runId}` : `unkeyed:${responseIndex}`;
     terminalByResponse.set(responseKey, message);
   }
 

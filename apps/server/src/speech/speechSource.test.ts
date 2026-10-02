@@ -1,19 +1,27 @@
-import { MessageId, type OrchestrationMessage, ThreadId } from "@t3tools/contracts";
+import { MessageId, type OrchestrationV2ConversationMessage, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { resolveSpeechMessageText } from "./speechSource.ts";
 
 const ids = { threadId: ThreadId.make("thread-1"), messageId: MessageId.make("message-1") };
-const message = (overrides: Partial<OrchestrationMessage>): OrchestrationMessage => ({
+const message = (
+  overrides: Partial<OrchestrationV2ConversationMessage>,
+): OrchestrationV2ConversationMessage => ({
+  createdBy: "agent",
+  creationSource: "provider",
   id: ids.messageId,
   role: "assistant",
   text: "Done.",
-  turnId: null,
+  threadId: ids.threadId,
+  runId: null,
+  nodeId: null,
+  attachments: [],
   streaming: false,
-  createdAt: "2026-09-08T00:00:00.000Z",
-  updatedAt: "2026-09-08T00:00:00.000Z",
+  createdAt: DateTime.makeUnsafe("2026-09-08T00:00:00.000Z"),
+  updatedAt: DateTime.makeUnsafe("2026-09-08T00:00:00.000Z"),
   ...overrides,
 });
 
