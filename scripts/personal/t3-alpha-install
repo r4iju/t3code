@@ -4,8 +4,8 @@
 # session, T3 terminal, SSH, anywhere).
 #
 # Sibling of t3-self-update (Homebrew nightly). Same two-phase shape:
-#   Phase 1 (foreground): re-exec detached via nohup and return immediately, so
-#   the app dying mid-install does not kill the installer.
+#   Phase 1 (foreground): re-exec in a new session and return immediately, so
+#   neither the app dying mid-install nor the caller's cleanup kills the installer.
 #   Phase 2 (detached): graceful quit -> wait for LaunchServices to forget the
 #   app -> backup old bundle -> ditto-extract the zip (no quarantine) -> strip
 #   quarantine BEFORE first exec -> unstick recipe -> launch (with fallbacks)
@@ -77,13 +77,22 @@ fi
 
 # Agent turns in progress on this Mac's T3 server. A dead server has none,
 # whatever its database says: stale rows are only reconciled on its next start.
+# Orchestration V2 builds keep their state in statev2.sqlite and leave the V1
+# tables frozen at the upgrade, so read whichever database the install uses.
 busy_turns() {
-  local pid
-  pid=$(plutil -extract pid raw "$HOME/.t3/userdata/server-runtime.json" 2>/dev/null) &&
+  local pid dir="$HOME/.t3/userdata"
+  pid=$(plutil -extract pid raw "$dir/server-runtime.json" 2>/dev/null) &&
     kill -0 "$pid" 2>/dev/null || { echo 0; return; }
-  /usr/bin/sqlite3 -readonly -cmd ".timeout 5000" "$HOME/.t3/userdata/state.sqlite" \
-    "SELECT COUNT(*) FROM projection_thread_sessions
-     WHERE (status = 'running' AND active_turn_id IS NOT NULL) OR status = 'starting';"
+  if [[ -f "$dir/statev2.sqlite" ]]; then
+    # The statuses the server's own recovery treats as in flight.
+    /usr/bin/sqlite3 -readonly -cmd ".timeout 5000" "$dir/statev2.sqlite" \
+      "SELECT COUNT(*) FROM orchestration_v2_projection_runs
+       WHERE status IN ('queued', 'preparing', 'starting', 'running', 'waiting');"
+  else
+    /usr/bin/sqlite3 -readonly -cmd ".timeout 5000" "$dir/state.sqlite" \
+      "SELECT COUNT(*) FROM projection_thread_sessions
+       WHERE (status = 'running' AND active_turn_id IS NOT NULL) OR status = 'starting';"
+  fi
 }
 
 if [[ "${1:-}" != "--detached" ]]; then
@@ -106,8 +115,12 @@ if [[ "${1:-}" != "--detached" ]]; then
       exit 3
     fi
   fi
-  nohup /bin/bash "$0" --detached "$ZIP" --expect-version "$EXPECT" >> "$LOG" 2>&1 &
-  disown
+  # A new session, not just nohup: Codex kills the exec's whole process group
+  # when the command returns, which took a nohup'd installer with it before it
+  # extracted anything (2026-10-03). Do not swap in `launchctl submit` either:
+  # submitted jobs are kept alive, so the install reran every time it finished.
+  /usr/bin/perl -MPOSIX=setsid -e 'setsid or die "setsid: $!\n"; exec @ARGV' \
+    /bin/bash "$0" --detached "$ZIP" --expect-version "$EXPECT" >> "$LOG" 2>&1 </dev/null &
   echo "Started in background (pid $!). Watch: tail -f $LOG"
   echo "The app will restart; this session will die with it if it runs inside T3."
   exit 0

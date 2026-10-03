@@ -1,10 +1,10 @@
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as HttpClient from "effect/unstable/http/HttpClient";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as HttpClient from "effect/unstable/http/HttpClient";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
@@ -270,7 +270,10 @@ export const make = Effect.gen(function* () {
     if (compatibilityError !== null) {
       return yield* compatibilityError;
     }
-    return { ...prepared, socketUrl: appendOrchestrationProtocol(prepared.socketUrl) };
+    return {
+      ...prepared,
+      socketUrl: appendOrchestrationProtocol(prepared.socketUrl),
+    };
   });
 
   return ConnectionResolver.of({ prepare });

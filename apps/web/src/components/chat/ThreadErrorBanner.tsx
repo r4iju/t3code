@@ -1,4 +1,5 @@
-import { memo, type ReactNode } from "react";
+import type { OrchestrationV2ProviderFailureClass } from "@t3tools/contracts";
+import { memo } from "react";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { CircleAlertIcon, XIcon } from "lucide-react";
@@ -37,22 +38,20 @@ export function isThreadErrorBannerDismissedForSession(bannerKey: string | null)
 
 export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   error,
-  summary,
-  action,
   onDismiss,
+  errorClass,
   chatGptUsageLimit = false,
 }: {
   error: string | null;
-  /** Shown instead of the error; the full error stays in the tooltip. */
-  summary?: string;
-  action?: ReactNode;
+  errorClass?: OrchestrationV2ProviderFailureClass | null;
   onDismiss?: () => void;
   chatGptUsageLimit?: boolean;
 }) {
   if (!error) return null;
+  const variant = errorClass === "usage_limit" ? "warning" : "error";
   return (
     <div className="pointer-events-auto mx-auto w-fit max-w-[min(48rem,calc(100%-2rem))] pt-3">
-      <Alert variant="error" surface="glass" controlAlignment="first-line">
+      <Alert variant={variant} surface="glass" controlAlignment="first-line" data-variant={variant}>
         {chatGptUsageLimit ? (
           <OpenAI className="size-4 text-foreground!" aria-hidden="true" />
         ) : (
@@ -66,22 +65,19 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
             </div>
           ) : (
             <Tooltip>
-              <TooltipTrigger render={<div className="line-clamp-3" />}>
-                {summary ?? error}
-              </TooltipTrigger>
+              <TooltipTrigger render={<div className="line-clamp-3" />}>{error}</TooltipTrigger>
               <TooltipPopup side="top" className="whitespace-pre-wrap">
                 {error}
               </TooltipPopup>
             </Tooltip>
           )}
         </AlertDescription>
-        {(action || chatGptUsageLimit || onDismiss) && (
+        {(chatGptUsageLimit || onDismiss) && (
           <AlertAction>
-            {action}
             {chatGptUsageLimit ? <ChatGptUsageButton variant="default" size="sm" /> : null}
             {onDismiss ? (
               <Button variant="ghost" size="icon-xs" aria-label="Dismiss error" onClick={onDismiss}>
-                <XIcon className="text-destructive" />
+                <XIcon />
               </Button>
             ) : null}
           </AlertAction>

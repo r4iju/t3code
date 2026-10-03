@@ -195,6 +195,24 @@ const makeDependencies = Effect.fn("TestConnectionResolver.makeDependencies")((o
 });
 
 describe("ConnectionResolver", () => {
+  it.effect("blocks an old host during discovery before opening orchestration RPC", () =>
+    Effect.gen(function* () {
+      const brokerLayer = yield* makeDependencies({ descriptorProtocolVersion: null });
+      const broker = yield* ConnectionResolver.ConnectionResolver.pipe(Effect.provide(brokerLayer));
+      const target = new PrimaryConnectionTarget({
+        environmentId: ENVIRONMENT_ID,
+        label: "Primary",
+        httpBaseUrl: "http://127.0.0.1:3777",
+        wsBaseUrl: "ws://127.0.0.1:3777",
+      });
+
+      const error = yield* Effect.flip(broker.prepare(catalogEntry(target)));
+
+      expect(error).toMatchObject({ reason: "unsupported" });
+      expect(error.message).toContain("Update T3 Code on Compatible environment");
+    }),
+  );
+
   it.effect("blocks an incompatible host during discovery before opening orchestration RPC", () =>
     Effect.gen(function* () {
       const brokerLayer = yield* makeDependencies({
@@ -230,7 +248,7 @@ describe("ConnectionResolver", () => {
         environmentId: ENVIRONMENT_ID,
         label: "Primary",
         httpBaseUrl: "http://127.0.0.1:3777",
-        socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=cookie&orchestrationProtocol=1",
+        socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=cookie&orchestrationProtocol=2",
         httpAuthorization: null,
         target,
       });
@@ -289,7 +307,7 @@ describe("ConnectionResolver", () => {
       });
 
       expect(yield* broker.prepare(catalogEntry(target))).toMatchObject({
-        socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=desktop&orchestrationProtocol=1",
+        socketUrl: "ws://127.0.0.1:3777/ws?wsTicket=desktop&orchestrationProtocol=2",
         httpAuthorization: { _tag: "Bearer", token: "desktop-bearer" },
         target,
       });

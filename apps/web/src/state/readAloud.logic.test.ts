@@ -1,5 +1,5 @@
 import { READ_ALOUD_SAMPLE_KEY, readAloudMessageKey } from "@t3tools/client-runtime/read-aloud";
-import { EnvironmentId, MessageId, ThreadId, TurnId } from "@t3tools/contracts";
+import { EnvironmentId, MessageId, ThreadId, RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -15,14 +15,14 @@ function message(input: {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
-  turnId?: string | null;
+  runId?: string | null;
   streaming?: boolean;
 }) {
   return {
     id: MessageId.make(input.id),
     role: input.role,
     text: input.text,
-    turnId: input.turnId ? TurnId.make(input.turnId) : null,
+    runId: input.runId ? RunId.make(input.runId) : null,
     streaming: input.streaming ?? false,
   };
 }
@@ -56,26 +56,26 @@ describe("findLatestSpeakableAssistantMessage", () => {
   it("returns the final assistant message of the latest turn", () => {
     const result = findLatestSpeakableAssistantMessage([
       message({ id: "u1", role: "user", text: "hi" }),
-      message({ id: "a1", role: "assistant", text: "First thought.", turnId: "t1" }),
-      message({ id: "a2", role: "assistant", text: "Final answer.", turnId: "t1" }),
+      message({ id: "a1", role: "assistant", text: "First thought.", runId: "t1" }),
+      message({ id: "a2", role: "assistant", text: "Final answer.", runId: "t1" }),
     ]);
     expect(result).toEqual({ kind: "found", message: expect.objectContaining({ id: "a2" }) });
   });
 
   it("reports a streaming latest response instead of reading an older one", () => {
     const result = findLatestSpeakableAssistantMessage([
-      message({ id: "a1", role: "assistant", text: "Done earlier.", turnId: "t1" }),
+      message({ id: "a1", role: "assistant", text: "Done earlier.", runId: "t1" }),
       message({ id: "u2", role: "user", text: "more" }),
-      message({ id: "a2", role: "assistant", text: "Working", turnId: "t2", streaming: true }),
+      message({ id: "a2", role: "assistant", text: "Working", runId: "t2", streaming: true }),
     ]);
     expect(result).toEqual({ kind: "streaming" });
   });
 
   it("skips responses with nothing to speak and falls back to the previous one", () => {
     const result = findLatestSpeakableAssistantMessage([
-      message({ id: "a1", role: "assistant", text: "Here is prose.", turnId: "t1" }),
+      message({ id: "a1", role: "assistant", text: "Here is prose.", runId: "t1" }),
       message({ id: "u2", role: "user", text: "code please" }),
-      message({ id: "a2", role: "assistant", text: "```ts\nconst x = 1;\n```", turnId: "t2" }),
+      message({ id: "a2", role: "assistant", text: "```ts\nconst x = 1;\n```", runId: "t2" }),
     ]);
     expect(result).toEqual({ kind: "found", message: expect.objectContaining({ id: "a1" }) });
   });

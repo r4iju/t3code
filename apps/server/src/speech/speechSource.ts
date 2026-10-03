@@ -1,6 +1,6 @@
 import {
   type MessageId,
-  type OrchestrationMessage,
+  type OrchestrationV2ConversationMessage,
   SpeechMessageNotFoundError,
   SpeechMessageStreamingError,
   type ThreadId,
@@ -13,7 +13,7 @@ import * as Option from "effect/Option";
  * still streaming is reported as not found or not ready, respectively.
  */
 export const resolveSpeechMessageText = (
-  message: Option.Option<{ readonly message: OrchestrationMessage }>,
+  message: Option.Option<{ readonly message: OrchestrationV2ConversationMessage }>,
   ids: { readonly threadId: ThreadId; readonly messageId: MessageId },
 ): Effect.Effect<string, SpeechMessageNotFoundError | SpeechMessageStreamingError> => {
   if (Option.isNone(message) || message.value.message.role !== "assistant") {

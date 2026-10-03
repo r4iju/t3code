@@ -12,12 +12,12 @@ toward upstream or have a written reason to stay.
 
 ## Machines
 
-| Machine                  | SSH                      | Role                                               |
-| ------------------------ | ------------------------ | -------------------------------------------------- |
-| studio (Mac Studio)      | —                        | Builds and signs releases; T3 Code host            |
-| matebook                 | `emanuel@matebook.lan`   | T3 Code host                                       |
-| sm-em (work MacBook Pro) | `emanuelfranzen@Mac.lan` | T3 Code host                                       |
-| iPhone / Android         | —                        | Mobile clients: TestFlight / Play internal testing |
+| Machine                  | SSH                    | Role                                               |
+| ------------------------ | ---------------------- | -------------------------------------------------- |
+| studio (Mac Studio)      | —                      | Builds and signs releases; T3 Code host            |
+| matebook                 | `emanuel@matebook.lan` | T3 Code host                                       |
+| sm-em (work MacBook Pro) | `sm-em.local`          | T3 Code host                                       |
+| iPhone / Android         | —                      | Mobile clients: TestFlight / Play internal testing |
 
 Every Mac runs "T3 Code (Alpha)" from `/Applications`, built from this fork. A LAN server is
 the desktop app with Settings → Connections → Network access on (`0.0.0.0:3773`, pairing QR).
