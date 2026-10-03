@@ -38,6 +38,10 @@ ZIP="$REPO/release/T3-Code-$VERSION-arm64.zip"
 # The artifact build spawns `vp`, which only exists in the repo's node_modules.
 export PATH="$REPO/node_modules/.bin:$PATH"
 unset ELECTRON_RUN_AS_NODE
+# With a GitHub token set, electron-builder infers a GitHub publish target, finds
+# no repository in the staged app, and crashes reading its update channel. The
+# tag push below goes over SSH and never needs the token.
+unset GH_TOKEN GITHUB_TOKEN
 
 if ! git diff --quiet HEAD; then
   echo "error: $REPO has uncommitted changes; build from a clean checkout." >&2
