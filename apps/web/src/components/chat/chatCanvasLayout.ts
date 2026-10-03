@@ -37,7 +37,14 @@ export function resolveChatCanvasLayout({
   minChatWidth?: number;
   composerHeight?: number;
   detailsCard?: PreviewMiniPlayerObstacles["detailsCard"];
-}) {
+}): {
+  chat: { left: number; width: number; insetStart: number; insetEnd: number };
+  /** The lane the details card is placed beside. It ignores the card, so placing the card cannot move it. */
+  cardChat: { left: number; width: number };
+  frame: PreviewMiniPlayerFrame | null;
+  overlapsChat: boolean;
+  overlapsDetailsCard: boolean;
+} {
   const normalWidth = Math.max(0, Math.min(maxChatWidth, container.width - padding * 2));
   const normalLeft = (container.width - normalWidth) / 2;
   let chat = { left: normalLeft, width: normalWidth, insetStart: 0, insetEnd: 0 };
@@ -162,5 +169,16 @@ export function resolveChatCanvasLayout({
     frame.x + frame.width > detailsCard.left &&
     frame.y < detailsCard.bottom,
   );
-  return { chat, frame, overlapsChat, overlapsDetailsCard };
+  const cardChat =
+    preview && detailsCard
+      ? resolveChatCanvasLayout({
+          container,
+          preview,
+          padding,
+          maxChatWidth,
+          minChatWidth,
+          composerHeight,
+        }).chat
+      : chat;
+  return { chat, cardChat, frame, overlapsChat, overlapsDetailsCard };
 }
