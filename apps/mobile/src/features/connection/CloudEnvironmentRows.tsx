@@ -220,31 +220,25 @@ function ConnectedCloudEnvironmentRow(props: {
     setLastDescriptor(props.descriptor);
   }
   return (
-    <Pressable
-      accessibilityHint="Long press to remove from this device"
-      accessibilityRole={props.onOpen ? "button" : undefined}
-      accessibilityLabel={props.onOpen ? `Manage ${props.environment.environmentLabel}` : undefined}
-      onPress={props.onOpen}
-      onLongPress={props.onRemove}
-    >
-      <CloudEnvironmentRowShell
-        opensDetails={props.onOpen !== undefined}
-        connectionError={enabled || unsupported ? props.environment.connectionError : null}
-        connectionErrorTraceId={enabled ? props.environment.connectionErrorTraceId : null}
-        connectionBlockedReason={enabled ? props.environment.connectionBlockedReason : null}
-        connectionState={enabled || unsupported ? props.environment.connectionState : "available"}
-        errorExpanded={props.errorExpanded}
-        label={props.environment.environmentLabel}
-        machine={resolveEnvironmentMachineKind(
-          serverConfig ?? (lastDescriptor === undefined ? null : { environment: lastDescriptor }),
-        )}
-        onValueChange={props.onSetEnabled}
-        onToggleError={props.onToggleError}
-        disabled={unsupported}
-        {...(enabled || unsupported ? {} : { statusText: "Off" })}
-        value={enabled}
-      />
-    </Pressable>
+    <CloudEnvironmentRowShell
+      onOpen={props.onOpen}
+      onRemove={props.onRemove}
+      opensDetails={props.onOpen !== undefined}
+      connectionError={enabled || unsupported ? props.environment.connectionError : null}
+      connectionErrorTraceId={enabled ? props.environment.connectionErrorTraceId : null}
+      connectionBlockedReason={enabled ? props.environment.connectionBlockedReason : null}
+      connectionState={enabled || unsupported ? props.environment.connectionState : "available"}
+      errorExpanded={props.errorExpanded}
+      label={props.environment.environmentLabel}
+      machine={resolveEnvironmentMachineKind(
+        serverConfig ?? (lastDescriptor === undefined ? null : { environment: lastDescriptor }),
+      )}
+      onValueChange={props.onSetEnabled}
+      onToggleError={props.onToggleError}
+      disabled={unsupported}
+      {...(enabled || unsupported ? {} : { statusText: "Off" })}
+      value={enabled}
+    />
   );
 }
 
@@ -290,6 +284,8 @@ function CloudEnvironmentRow(props: {
 }
 
 function CloudEnvironmentRowShell(props: {
+  readonly onOpen?: (() => void) | undefined;
+  readonly onRemove?: (() => void) | undefined;
   readonly showChevron?: boolean;
   readonly opensDetails?: boolean;
   readonly connectionError: string | null;
@@ -349,78 +345,88 @@ function CloudEnvironmentRowShell(props: {
   );
   return (
     <View collapsable={false} className="flex-row items-center gap-3 bg-grouped-card px-4 py-3.5">
-      <View className="min-w-0 flex-1 gap-0.5">
-        <View className="min-w-0 flex-row items-center gap-2">
-          <ConnectionStatusDot state={props.connectionState} pulse={shouldPulse} size={7} />
-          <EnvironmentMachineSymbol
-            kind={props.machine}
-            size={14}
-            tintColorClassName="accent-foreground-muted"
-          />
-          <Text
-            className="min-w-0 flex-shrink text-base font-t3-bold leading-snug text-foreground"
-            numberOfLines={1}
+      <Pressable
+        className="min-w-0 flex-1 flex-row items-center gap-3"
+        accessibilityHint={props.onRemove ? "Long press to remove from this device" : undefined}
+        accessibilityRole={props.onOpen ? "button" : undefined}
+        accessibilityLabel={props.onOpen ? `Manage ${props.label}` : undefined}
+        onPress={props.onOpen}
+        onLongPress={props.onRemove}
+      >
+        <View className="min-w-0 flex-1 gap-0.5">
+          <View className="min-w-0 flex-row items-center gap-2">
+            <ConnectionStatusDot state={props.connectionState} pulse={shouldPulse} size={7} />
+            <EnvironmentMachineSymbol
+              kind={props.machine}
+              size={14}
+              tintColorClassName="accent-foreground-muted"
+            />
+            <Text
+              className="min-w-0 flex-shrink text-base font-t3-bold leading-snug text-foreground"
+              numberOfLines={1}
+            >
+              {props.label}
+            </Text>
+          </View>
+          {props.connectionError ? (
+            <Text
+              aria-hidden
+              onTextLayout={onMeasuredErrorTextLayout}
+              className={cn("absolute inset-x-0 -z-[1] text-xs opacity-0", statusClassName)}
+            >
+              {measuredErrorText}
+            </Text>
+          ) : null}
+          <StatusContainer
+            {...(errorCanExpand
+              ? { accessibilityRole: "button" as const, onPress: props.onToggleError }
+              : {})}
+            className="min-w-0 flex-row items-start gap-1"
           >
-            {props.label}
-          </Text>
-        </View>
-        {props.connectionError ? (
-          <Text
-            aria-hidden
-            onTextLayout={onMeasuredErrorTextLayout}
-            className={cn("absolute inset-x-0 -z-[1] text-xs opacity-0", statusClassName)}
-          >
-            {measuredErrorText}
-          </Text>
-        ) : null}
-        <StatusContainer
-          {...(errorCanExpand
-            ? { accessibilityRole: "button" as const, onPress: props.onToggleError }
-            : {})}
-          className="min-w-0 flex-row items-start gap-1"
-        >
-          <Text
-            className={cn("min-w-0 flex-1 text-xs", statusClassName)}
-            numberOfLines={isErrorExpanded ? undefined : 1}
-          >
-            {statusText}
-            {errorTraceId ? (
-              <ConnectionTraceId
-                traceId={errorTraceId}
-                tone={
-                  props.connectionError && props.connectionState !== "unsupported"
-                    ? "danger"
-                    : "muted"
-                }
-                activation="longPress"
+            <Text
+              className={cn("min-w-0 flex-1 text-xs", statusClassName)}
+              numberOfLines={isErrorExpanded ? undefined : 1}
+            >
+              {statusText}
+              {errorTraceId ? (
+                <ConnectionTraceId
+                  traceId={errorTraceId}
+                  tone={
+                    props.connectionError && props.connectionState !== "unsupported"
+                      ? "danger"
+                      : "muted"
+                  }
+                  activation="longPress"
+                />
+              ) : null}
+            </Text>
+            {errorCanExpand ? (
+              <SymbolView
+                name="chevron.down"
+                size={10}
+                tintColorClassName={"accent-chevron"}
+                type="monochrome"
+                style={{
+                  marginTop: 3,
+                  transform: [{ rotate: isErrorExpanded ? "180deg" : "0deg" }],
+                }}
               />
             ) : null}
-          </Text>
-          {errorCanExpand ? (
-            <SymbolView
-              name="chevron.down"
-              size={10}
-              tintColorClassName={"accent-chevron"}
-              type="monochrome"
-              style={{
-                marginTop: 3,
-                transform: [{ rotate: isErrorExpanded ? "180deg" : "0deg" }],
-              }}
-            />
-          ) : null}
-        </StatusContainer>
-      </View>
+          </StatusContainer>
+        </View>
+        {props.opensDetails || props.showChevron ? (
+          <View style={{ opacity: props.opensDetails ? 1 : 0.4 }}>
+            <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />
+          </View>
+        ) : null}
+      </Pressable>
       <ThemedSwitch
+        accessibilityLabel={`Connect to ${props.label}`}
         style={{ alignSelf: "center" }}
         disabled={props.disabled}
         onValueChange={props.onValueChange}
         value={props.value}
       />
-      {props.opensDetails || props.showChevron ? (
-        <View style={{ opacity: props.opensDetails ? 1 : 0.4 }}>
-          <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />
-        </View>
-      ) : null}
     </View>
   );
 }
