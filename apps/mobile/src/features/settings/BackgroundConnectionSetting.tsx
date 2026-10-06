@@ -1,5 +1,5 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { View } from "react-native";
 
 import { supportsBackgroundConnection } from "../../connection/native-background-connection";
@@ -19,7 +19,7 @@ export function BackgroundConnectionSetting() {
           label="Keep connected in background"
           subtitle={
             supportsBackgroundConnection
-              ? "Keep connections active for up to 3 minutes after leaving the app. Uses more battery. Android shows a notification; iOS may stop earlier."
+              ? "Keep connections active for up to 3 minutes after leaving the app. Uses more battery. Android shows a notification when allowed; iOS may stop earlier."
               : "Install a newer app build to enable background connections."
           }
           value={

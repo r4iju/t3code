@@ -6,7 +6,7 @@
 import { SpeechServiceError } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
-import { HttpClient, type HttpClientRequest, type HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, type HttpClientRequest, type HttpClientResponse } from "effect/http";
 
 export interface SpeechAudioChunk {
   readonly bytes: Uint8Array;

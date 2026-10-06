@@ -8,8 +8,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import * as HttpClientError from "effect/http/HttpClientError";
 
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "../assets/AssetAccess.ts";
 import * as NativeAppIconResolver from "../assets/NativeAppIconResolver.ts";
@@ -20,10 +20,12 @@ import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import * as Speech from "./Speech.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { retryAfterMs } from "./speechRequest.ts";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), { prefix: "t3-speech-test-" });
 const baseLayer = Layer.mergeAll(
+  Layer.mock(Orchestrator.OrchestratorV2)({ getTurnItem: () => Effect.succeed(null) }),
   configLayer,
   WorkspacePaths.layer,
   ProjectFaviconResolver.layer.pipe(

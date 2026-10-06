@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 
 class BackgroundConnectionService : Service() {
@@ -25,7 +26,8 @@ class BackgroundConnectionService : Service() {
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     // An activity can resume before its queued service start is delivered.
-    if (!requested) {
+    val remainingMs = deadlineAtMs - SystemClock.elapsedRealtime()
+    if (!requested || remainingMs <= 0) {
       finish()
       return START_NOT_STICKY
     }
@@ -61,8 +63,8 @@ class BackgroundConnectionService : Service() {
 
     wakeLock = getSystemService(PowerManager::class.java)
       .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:background-connection")
-      .apply { acquire(windowMs) }
-    handler.postDelayed(expire, windowMs)
+      .apply { acquire(remainingMs) }
+    handler.postDelayed(expire, remainingMs)
     return START_NOT_STICKY
   }
 
@@ -96,12 +98,12 @@ class BackgroundConnectionService : Service() {
     private const val CHANNEL_ID = "t3-background-connections"
     private const val NOTIFICATION_ID = 7344
     @Volatile private var requested = false
-    @Volatile private var windowMs = 180_000L
+    @Volatile private var deadlineAtMs = 0L
 
     fun start(context: Context, durationMs: Long) {
       if (requested) return
       requested = true
-      windowMs = durationMs.coerceIn(1, 180_000)
+      deadlineAtMs = SystemClock.elapsedRealtime() + durationMs.coerceIn(1, 180_000)
       try {
         val intent = Intent(context, BackgroundConnectionService::class.java)
         if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)

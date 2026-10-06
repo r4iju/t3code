@@ -5,7 +5,7 @@ import {
   type ServerConfig,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 
 import {
   AVAILABLE_CONNECTION_STATE,
@@ -19,6 +19,7 @@ import {
   type EnvironmentPresentation,
 } from "../connection/presentation.ts";
 import type { EnvironmentCatalogState } from "./connections.ts";
+import { hasRelayRoute } from "../connection/routes.ts";
 
 function mapsEqual<K, V>(left: ReadonlyMap<K, V>, right: ReadonlyMap<K, V>): boolean {
   if (left.size !== right.size) {
@@ -108,7 +109,7 @@ export function projectEnvironmentConnectionSummary(
     environmentId,
     environmentLabel: environment.entry.target.label,
     displayUrl: connectionCatalogDisplayUrl(environment.entry) ?? "",
-    isRelayManaged: environment.entry.target._tag === "RelayConnectionTarget",
+    isRelayManaged: hasRelayRoute(environment.entry),
     isEnabled: environment.entry.enabled,
     connectionState: environment.connection.phase,
     connectionError: environment.connection.error,

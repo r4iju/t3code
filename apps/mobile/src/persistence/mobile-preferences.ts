@@ -47,6 +47,8 @@ export interface Preferences {
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   /** Device-local counterpart of desktop's `planModeEnabled` legacy flag. */
   readonly planModeEnabled?: boolean;
+  /** Device-local counterpart of web's `sidebarWorkingShelfEnabled` beta. */
+  readonly workingShelfEnabled?: boolean;
   /** Model favorites belong to this device, like the web client setting. */
   readonly modelFavorites?: ReadonlyArray<{
     readonly provider: ProviderInstanceId;
@@ -57,6 +59,7 @@ export interface Preferences {
   readonly threadListSnoozedShelfExpanded?: boolean;
   /** Read-aloud speed on this device; absent means the shared default. */
   readonly readAloudPlaybackRate?: ReadAloudPlaybackRate;
+  readonly threadListWorkingShelfExpanded?: boolean;
 }
 
 export class MobilePreferencesLoadError extends Schema.TaggedError<MobilePreferencesLoadError>()(
@@ -116,10 +119,12 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     planModeEnabled?: boolean;
+    workingShelfEnabled?: boolean;
     modelFavorites?: Preferences["modelFavorites"];
     threadListSettledShelfExpanded?: boolean;
     threadListSnoozedShelfExpanded?: boolean;
     readAloudPlaybackRate?: ReadAloudPlaybackRate;
+    threadListWorkingShelfExpanded?: boolean;
   } = {};
 
   if (typeof parsed.keepConnectedInBackground === "boolean") {
@@ -194,6 +199,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (typeof parsed.planModeEnabled === "boolean") {
     preferences.planModeEnabled = parsed.planModeEnabled;
   }
+  if (typeof parsed.workingShelfEnabled === "boolean") {
+    preferences.workingShelfEnabled = parsed.workingShelfEnabled;
+  }
   if (Array.isArray(parsed.modelFavorites)) {
     preferences.modelFavorites = parsed.modelFavorites.filter(
       (favorite) =>
@@ -213,6 +221,9 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   }
   if (isReadAloudPlaybackRate(parsed.readAloudPlaybackRate)) {
     preferences.readAloudPlaybackRate = parsed.readAloudPlaybackRate;
+  }
+  if (typeof parsed.threadListWorkingShelfExpanded === "boolean") {
+    preferences.threadListWorkingShelfExpanded = parsed.threadListWorkingShelfExpanded;
   }
   return preferences;
 }

@@ -1,10 +1,14 @@
+import type {
+  AuthClientPresentationMetadata,
+  ExecutionEnvironmentDescriptor,
+} from "@t3tools/contracts";
 import { withRelayClientTracing } from "@t3tools/shared/relayTracing";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
-import * as HttpClient from "effect/unstable/http/HttpClient";
+import * as HttpClient from "effect/http/HttpClient";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import * as ClientCapabilities from "../platform/capabilities.ts";
@@ -39,6 +43,7 @@ import {
   appendOrchestrationProtocol,
   orchestrationProtocolCompatibilityError,
 } from "./compatibility.ts";
+import { credentialConnectionId } from "./routes.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
 
 export class ConnectionResolver extends Context.Service<
@@ -47,6 +52,17 @@ export class ConnectionResolver extends Context.Service<
     readonly prepare: (
       entry: ConnectionCatalogEntry,
     ) => Effect.Effect<PreparedConnection, ConnectionAttemptError>;
+    /**
+     * Authorizes a socket without the orchestration protocol gate, for hosts
+     * too old to connect normally. Only update RPCs may run over it.
+     */
+    readonly prepareForUpdate: (entry: ConnectionCatalogEntry) => Effect.Effect<
+      {
+        readonly prepared: PreparedConnection;
+        readonly descriptor: ExecutionEnvironmentDescriptor;
+      },
+      ConnectionAttemptError
+    >;
   }
 >()("@t3tools/client-runtime/connection/resolver/ConnectionResolver") {}
 
@@ -114,7 +130,15 @@ const makeBearerBroker = Effect.fn("clientRuntime.connection.broker.makeBearer")
         actual: profile.environmentId,
       });
     }
-    const credential = yield* credentials.get(target.connectionId).pipe(
+    if (profile.authorization === "t3-connect") {
+      const authorized = yield* remote.authorizeDpop({
+        expectedEnvironmentId: target.environmentId,
+        directEndpoint: { httpBaseUrl: profile.httpBaseUrl, wsBaseUrl: profile.wsBaseUrl },
+      });
+      return { ...authorized, target } satisfies PreparedConnection;
+    }
+    // A learned route borrows the credential of the route it was learned from.
+    const credential = yield* credentials.get(credentialConnectionId(target.connectionId)).pipe(
       Effect.flatMap(
         Option.match({
           onNone: () => Effect.fail(credentialMissingError(target.connectionId)),
@@ -234,7 +258,7 @@ export const make = Effect.gen(function* () {
   const ssh = yield* makeSshBroker();
   const httpClient = yield* HttpClient.HttpClient;
 
-  const prepare = Effect.fn("clientRuntime.connection.broker.prepare")(function* (
+  const authorize = Effect.fn("clientRuntime.connection.broker.authorize")(function* (
     entry: ConnectionCatalogEntry,
   ) {
     const target: ConnectionTarget = entry.target;
@@ -266,6 +290,13 @@ export const make = Effect.gen(function* () {
         actual: descriptor.environmentId,
       });
     }
+    return { prepared, descriptor };
+  });
+
+  const prepare = Effect.fn("clientRuntime.connection.broker.prepare")(function* (
+    entry: ConnectionCatalogEntry,
+  ) {
+    const { prepared, descriptor } = yield* authorize(entry);
     const compatibilityError = orchestrationProtocolCompatibilityError(descriptor);
     if (compatibilityError !== null) {
       return yield* compatibilityError;
@@ -276,7 +307,7 @@ export const make = Effect.gen(function* () {
     };
   });
 
-  return ConnectionResolver.of({ prepare });
+  return ConnectionResolver.of({ prepare, prepareForUpdate: authorize });
 });
 
 export const layer = Layer.effect(ConnectionResolver, make);
