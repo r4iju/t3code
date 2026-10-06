@@ -22,7 +22,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
-import { Atom } from "effect/unstable/reactivity";
+import { Atom } from "effect/reactivity";
 import { useSyncExternalStore } from "react";
 
 import { toastManager } from "../components/ui/toast";

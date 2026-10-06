@@ -5,12 +5,12 @@ import { useNavigation } from "@react-navigation/native";
 import { Platform, View } from "react-native";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import { DEFAULT_READ_ALOUD_PLAYBACK_RATE, formatReadAloudPlaybackRate } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
-import { NativeHeaderToolbar } from "../../native/StackHeader";
+import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
@@ -33,14 +33,19 @@ export function SettingsRouteScreen() {
 
   return (
     <>
+      {Platform.OS === "ios" ? (
+        <NativeStackScreenOptions options={{ headerBackVisible: !layout.usesSplitView }} />
+      ) : null}
       {Platform.OS === "ios" && layout.usesSplitView ? (
-        <NativeHeaderToolbar placement="left">
-          <NativeHeaderToolbar.Button
-            accessibilityLabel="Go back"
-            icon="chevron.left"
-            onPress={() => navigation.goBack()}
-          />
-        </NativeHeaderToolbar>
+        <>
+          <NativeHeaderToolbar placement="left">
+            <NativeHeaderToolbar.Button
+              accessibilityLabel="Go back"
+              icon="chevron.left"
+              onPress={() => navigation.goBack()}
+            />
+          </NativeHeaderToolbar>
+        </>
       ) : null}
       <SettingsEnvironmentFilterHeader closeSettings />
       {Platform.OS === "android" ? (
@@ -157,7 +162,10 @@ function SettingsIndexSections() {
       <SettingsSection title="Interface">
         <SettingsRow icon="paintbrush" label="Appearance" target="SettingsAppearance" />
         {Platform.OS === "ios" ? (
-          <SettingsRow icon="keyboard" label="Keyboard" target="SettingsKeyboard" />
+          <>
+            <SettingsRow icon="keyboard" label="Keyboard" target="SettingsKeyboard" />
+            <SettingsRow icon="mic" label="Microphone" target="SettingsMicrophone" />
+          </>
         ) : null}
         <SettingsRow
           icon="speaker.wave.2"

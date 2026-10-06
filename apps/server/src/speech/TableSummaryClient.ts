@@ -13,7 +13,7 @@ import {
   type SpeechSettings,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest } from "effect/http";
 
 /**
  * Asking for spoken prose keeps Markdown out of the answer, and forbidding

@@ -5,7 +5,7 @@
  */
 import type { SpeechSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import { HttpClientRequest } from "effect/unstable/http";
+import { HttpClientRequest } from "effect/http";
 
 import { sendSpeechRequest, type SpeechAudioChunk, unavailable } from "./speechRequest.ts";
 

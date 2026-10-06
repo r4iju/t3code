@@ -5,7 +5,7 @@ import {
   formatReadAloudPlaybackRate,
   READ_ALOUD_PLAYBACK_RATES,
 } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 

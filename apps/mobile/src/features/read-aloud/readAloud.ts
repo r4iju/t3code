@@ -20,7 +20,7 @@ import {
   WS_METHODS,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
-import { AsyncResult, Atom } from "effect/unstable/reactivity";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { useSyncExternalStore } from "react";
 import { Alert } from "react-native";
 
