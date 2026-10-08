@@ -3498,6 +3498,173 @@ it.layer(layerTest)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  {
+    // Starts a run on a thread that a scheduled delivery just unsettled, and
+    // returns helpers to end that run and await the orchestrator's reaction.
+    const startRun = (name: string) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const threadId = ThreadId.make(`settle-after-run-${name}`);
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`settle-after-run-${name}-create`),
+          threadId,
+          projectId: ProjectId.make(`settle-after-run-${name}-project`),
+          title: "Settle after run",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: `/tmp/settle-after-run-${name}`,
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make(`settle-after-run-${name}-settled`),
+          threadId,
+        });
+        const sendMessage = (
+          id: string,
+          dispatchMode: { type: "queue_after_active" | "start_immediately" },
+        ) =>
+          orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "user",
+            creationSource: "server",
+            commandId: CommandId.make(`settle-after-run-${name}-${id}`),
+            threadId,
+            messageId: MessageId.make(`settle-after-run-${name}-${id}`),
+            text: id,
+            attachments: [],
+            modelSelection,
+            dispatchMode,
+          });
+        yield* sendMessage("delivery", { type: "start_immediately" });
+        const run = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+        const request = (attempt = "request") =>
+          orchestrator.dispatch({
+            type: "thread.settle-after-run",
+            commandId: CommandId.make(`settle-after-run-${name}-${attempt}`),
+            threadId,
+            runId: run.id,
+          });
+        // Ends the run; with a request still pending, waits for its reaction.
+        const endRun = (status: "completed" | "failed") =>
+          Effect.gen(function* () {
+            const pending =
+              (yield* orchestrator.getThreadProjection(threadId)).thread.settleAfterRunId ===
+              run.id;
+            const afterSequence = yield* eventSink.latestSequence();
+            const applied = yield* eventSink.stream({ afterSequence }).pipe(
+              Stream.filter(
+                (stored) => stored.commandId === `command:system:settle-after-run:${run.id}`,
+              ),
+              Stream.runHead,
+              Effect.forkChild,
+            );
+            const now = yield* DateTime.now;
+            yield* eventSink.write({
+              commandId: CommandId.make(`settle-after-run-${name}-${status}`),
+              events: [
+                {
+                  id: EventId.make(`settle-after-run-${name}-${status}`),
+                  type: "run.updated",
+                  threadId,
+                  runId: run.id,
+                  occurredAt: now,
+                  payload: { ...run, status, startedAt: now, completedAt: now },
+                },
+              ],
+            });
+            if (pending) yield* Fiber.join(applied);
+            else yield* Fiber.interrupt(applied);
+            return yield* orchestrator.getThreadProjection(threadId);
+          });
+        return { orchestrator, threadId, run, request, endRun, sendMessage };
+      });
+
+    it.effect("settle after run: settles the thread once the requesting run completes", () =>
+      Effect.gen(function* () {
+        const { orchestrator, threadId, run, request, endRun } = yield* startRun("completes");
+        assert.isNull((yield* orchestrator.getThreadProjection(threadId)).thread.settledAt);
+
+        yield* request();
+        const requested = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(requested.thread.settleAfterRunId, run.id);
+        assert.isNull(requested.thread.settledAt);
+
+        const ended = yield* endRun("completed");
+        assert.equal(ended.thread.settledOverride, "settled");
+        assert.isNotNull(ended.thread.settledAt);
+        assert.isNull(ended.thread.settleAfterRunId ?? null);
+        assert.equal((yield* orchestrator.getThreadShell(threadId))?.settledOverride, "settled");
+
+        const late = yield* request("late-request").pipe(Effect.flip);
+        assert.equal(late._tag, "OrchestratorDispatchError");
+      }),
+    );
+
+    it.effect(
+      "settle after run: keeps the thread unsettled when a delivery queues after the request",
+      () =>
+        Effect.gen(function* () {
+          const { orchestrator, threadId, request, endRun, sendMessage } =
+            yield* startRun("queued");
+          yield* request();
+          yield* sendMessage("next-delivery", { type: "queue_after_active" });
+          assert.isNull(
+            (yield* orchestrator.getThreadProjection(threadId)).thread.settleAfterRunId ?? null,
+          );
+
+          const ended = yield* endRun("completed");
+          assert.isNull(ended.thread.settledOverride);
+          assert.isNull(ended.thread.settledAt);
+        }),
+    );
+
+    it.effect("settle after run: drops the request when the run fails", () =>
+      Effect.gen(function* () {
+        const { request, endRun } = yield* startRun("failed");
+        yield* request();
+
+        const ended = yield* endRun("failed");
+        assert.isNull(ended.thread.settledAt);
+        assert.isNull(ended.thread.settleAfterRunId ?? null);
+      }),
+    );
+
+    it.effect("settle after run: lets the user's unsettle win over the request", () =>
+      Effect.gen(function* () {
+        const { orchestrator, threadId, request, endRun } = yield* startRun("unsettled");
+        yield* request();
+        yield* orchestrator.dispatch({
+          type: "thread.unsettle",
+          commandId: CommandId.make("settle-after-run-unsettled-user"),
+          threadId,
+          reason: "user",
+        });
+        assert.isNull(
+          (yield* orchestrator.getThreadProjection(threadId)).thread.settleAfterRunId ?? null,
+        );
+
+        const ended = yield* endRun("completed");
+        assert.equal(ended.thread.settledOverride, "active");
+        assert.isNull(ended.thread.settledAt);
+      }),
+    );
+
+    it.effect("settle after run: rejects a request once a later run is queued", () =>
+      Effect.gen(function* () {
+        const { request, sendMessage } = yield* startRun("already-queued");
+        yield* sendMessage("earlier-delivery", { type: "queue_after_active" });
+        const error = yield* request().pipe(Effect.flip);
+        assert.equal(error._tag, "OrchestratorDispatchError");
+      }),
+    );
+  }
+
   it.effect("cancels queued work when a thread is archived", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

@@ -449,6 +449,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "checkpoint.rollback.fail":
     case "thread.background-work.settle":
     case "thread.stop":
+    case "thread.settle-after-run":
+    case "thread.settle-after-run.apply":
     case "provider.switch":
       return command.threadId;
     case "delegated_task.request":
@@ -2770,6 +2772,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...thread,
             settledOverride: "settled",
             settledAt: alreadySettled ? thread.settledAt : (command.settledAt ?? now),
+            settleAfterRunId: null,
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
             unsettledAt: null,
             pinnedAt: null,
@@ -2784,6 +2787,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...thread,
             settledOverride: "active",
             settledAt: null,
+            settleAfterRunId: null,
             unsettledAt: alreadyPinnedActive ? (thread.unsettledAt ?? null) : now,
             updatedAt: alreadyPinnedActive ? thread.updatedAt : now,
           };
@@ -2837,6 +2841,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             settledOverride:
               thread.settledOverride === "settled" ? "active" : thread.settledOverride,
             settledAt: thread.settledOverride === "settled" ? null : thread.settledAt,
+            settleAfterRunId: null,
             snoozedUntil: null,
             snoozedAt: null,
             updatedAt: alreadyPinned && !promotes ? thread.updatedAt : now,
@@ -4536,6 +4541,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       }
 
+      // A message outranks its thread agent's request to settle after the run.
+      if (projection.thread.settleAfterRunId != null) {
+        yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          providerInstanceId: projection.thread.providerInstanceId,
+          occurredAt: yield* DateTime.now,
+          payload: { ...projection.thread, settleAfterRunId: null },
+        });
+        projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+      }
       if (projection.thread.settledOverride !== null) {
         const now = yield* DateTime.now;
         const thread: OrchestrationV2AppThread = {
@@ -10097,6 +10116,100 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }),
     );
 
+  const dispatchSettleAfterRunRequest = (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.settle-after-run" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) =>
+    Effect.gen(function* () {
+      const projection = yield* projectionStore
+        .getThreadRecords(command.threadId, ["runs"])
+        .pipe(
+          Effect.mapError(() => new OrchestratorProjectionError({ threadId: command.threadId })),
+        );
+      const reject = (cause: string) =>
+        new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause,
+        });
+      const thread = projection.thread;
+      if (thread.archivedAt !== null || thread.deletedAt !== null) {
+        return yield* reject(`Thread ${command.threadId} is archived or deleted.`);
+      }
+      const run = projection.runs.find((candidate) => candidate.id === command.runId);
+      if (run === undefined || !["starting", "running", "waiting"].includes(run.status)) {
+        return yield* reject(`Run ${command.runId} is not active on thread ${command.threadId}.`);
+      }
+      if (projection.runs.some((candidate) => candidate.ordinal > run.ordinal)) {
+        return yield* reject(
+          `Thread ${command.threadId} already has newer work queued, so it stays unsettled.`,
+        );
+      }
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload: { ...thread, settleAfterRunId: run.id },
+      });
+    });
+
+  const dispatchSettleAfterRunApply = (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.settle-after-run.apply" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) =>
+    Effect.gen(function* () {
+      const projection = yield* projectionStore
+        .getThreadRecords(command.threadId, ["runs"])
+        .pipe(
+          Effect.mapError(() => new OrchestratorProjectionError({ threadId: command.threadId })),
+        );
+      const requested = projection.thread.settleAfterRunId === command.runId;
+      const run = projection.runs.find((candidate) => candidate.id === command.runId);
+      // A message dispatched after the request already cleared it; a later
+      // run that skipped message dispatch still wins here.
+      const settles =
+        requested &&
+        run?.status === "completed" &&
+        !projection.runs.some((candidate) => candidate.ordinal > run.ordinal);
+      if (settles) {
+        const eventCountBeforeSettle = (yield* Ref.get(events)).length;
+        const settled = yield* dispatchThreadMutation(
+          { type: "thread.settle", commandId: command.commandId, threadId: command.threadId },
+          events,
+          effects,
+        ).pipe(
+          Effect.as(true),
+          // Blocked work, such as a pending approval, keeps the thread active.
+          Effect.catchTags({
+            OrchestratorDispatchError: () =>
+              Ref.update(events, (existing) => existing.slice(0, eventCountBeforeSettle)).pipe(
+                Effect.as(false),
+              ),
+          }),
+        );
+        if (settled) return;
+      }
+      // The request is spent either way; record the no-op so the receipt is accepted.
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: command.threadId,
+        providerInstanceId: projection.thread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload: requested ? { ...projection.thread, settleAfterRunId: null } : projection.thread,
+      });
+    });
+
   const dispatchOnce = Effect.fn("orchestrationV2.dispatch.once")(function* (
     command: OrchestrationV2ServerCommand,
   ): Effect.fn.Return<
@@ -10363,6 +10476,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.background-work.settle":
         yield* dispatchBackgroundWorkSettle(command, events, effects);
         break;
+      case "thread.settle-after-run":
+        yield* dispatchSettleAfterRunRequest(command, events);
+        break;
+      case "thread.settle-after-run.apply":
+        yield* dispatchSettleAfterRunApply(command, events, effects);
+        break;
       case "thread.fork":
         yield* dispatchThreadFork(command, events);
         break;
@@ -10621,6 +10740,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         yield* threadDispatch.withLock(
           threadId,
           finalizeDelegatedCompletionDelivery(threadId, stored.event.payload.id),
+        );
+        // Before queue promotion, so a queued run is still visible to the request's guard.
+        // A failure leaves the thread unsettled and must not hold up the queue.
+        const runId = stored.event.payload.id;
+        yield* projectionStore.getThread(threadId).pipe(
+          Effect.flatMap((thread) =>
+            thread.settleAfterRunId === runId
+              ? dispatchWithReceipt({
+                  type: "thread.settle-after-run.apply",
+                  commandId: CommandId.make(`command:system:settle-after-run:${runId}`),
+                  threadId,
+                  runId,
+                })
+              : Effect.void,
+          ),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Failed to settle a thread after its run", {
+              threadId,
+              runId,
+              cause,
+            }),
+          ),
         );
       }
       yield* threadDispatch.withLock(
