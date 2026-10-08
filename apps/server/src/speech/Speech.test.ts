@@ -8,8 +8,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
-import * as HttpClientError from "effect/unstable/http/HttpClientError";
+import { HttpClient, HttpClientResponse } from "effect/http";
+import * as HttpClientError from "effect/http/HttpClientError";
 
 import { ASSET_ROUTE_PREFIX, resolveAsset } from "../assets/AssetAccess.ts";
 import * as NativeAppIconResolver from "../assets/NativeAppIconResolver.ts";

@@ -8,6 +8,7 @@ import { Platform, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SettingsScreen } from "./components/SettingsScreen";
+import { BackgroundConnectionSetting } from "./BackgroundConnectionSetting";
 import { AndroidAnchoredMenu } from "../../components/AndroidAnchoredMenu";
 import { AndroidHeaderIconButton } from "../../components/AndroidScreenHeader";
 import { CloudEnvironmentRows } from "../connection/CloudEnvironmentRows";
@@ -195,6 +196,7 @@ export function SettingsEnvironmentsRouteScreen() {
             : {})}
         />
         <GitHubRoutingSettings />
+        <BackgroundConnectionSetting />
       </ScrollView>
     </SettingsScreen>
   );

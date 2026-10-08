@@ -42,7 +42,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Semaphore from "effect/Semaphore";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 
 import { issueAssetUrl, speechCacheKeyMimeType } from "../assets/AssetAccess.ts";
 import { writeFileAtomically } from "../atomicWrite.ts";
