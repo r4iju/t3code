@@ -781,10 +781,42 @@ describe("orchestrator MCP toolkit", () => {
               "running",
             );
 
+            const otherThreadId = ThreadId.make("thread:mcp-other");
+            yield* orchestrator.dispatch({
+              type: "thread.create",
+              createdBy: "user",
+              creationSource: "web",
+              commandId: CommandId.make("command:mcp-other:create"),
+              threadId: otherThreadId,
+              projectId,
+              title: "MCP other",
+              modelSelection: codexSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: cwd,
+            });
+            const otherThreadSettle = yield* invoke("t3_thread_organize", {
+              action: "settle_after_run",
+              threadId: otherThreadId,
+            });
+            expect(declaredFailure(otherThreadSettle)).toMatchObject({ code: "invalid_request" });
+            const deferredSettle = yield* invoke("t3_thread_organize", {
+              action: "settle_after_run",
+            });
+            expect(deferredSettle.isError).toBe(false);
+            const afterDeferredSettle = yield* orchestrator.getThreadProjection(parentThreadId);
+            expect(afterDeferredSettle.thread.settleAfterRunId).toBe(parentRun?.id);
+            expect(afterDeferredSettle.thread.settledOverride).not.toBe("settled");
+
+            // Pinning withdraws the request, so the run's end leaves the thread active.
             const pinned = yield* invoke("t3_thread_organize", { action: "pin" });
             expect(pinned.isError).toBe(false);
             expect(pinned.structuredContent).toHaveProperty("sequence");
             expect((yield* orchestrator.getThreadShell(parentThreadId))?.pinnedAt).not.toBeNull();
+            expect(
+              (yield* orchestrator.getThreadProjection(parentThreadId)).thread.settleAfterRunId,
+            ).toBeNull();
             yield* invoke("t3_thread_organize", { action: "unpin" });
             expect((yield* orchestrator.getThreadShell(parentThreadId))?.pinnedAt).toBeNull();
 

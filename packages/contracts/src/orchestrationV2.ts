@@ -405,6 +405,11 @@ export const OrchestrationV2AppThread = Schema.Struct({
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
+  /**
+   * The run whose agent asked to settle this thread once it completes. Any
+   * message dispatched to the thread, an unsettle, or a pin clears it.
+   */
+  settleAfterRunId: Schema.optional(Schema.NullOr(RunId)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
@@ -3077,6 +3082,27 @@ const OrchestrationV2InternalCommand = Schema.Union([
         notification: OrchestrationV2Notification,
       }),
     ),
+  }),
+  /**
+   * An agent's request to settle its own thread once its active `runId`
+   * completes. Rejected when the run is not active or a later run exists.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.settle-after-run"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
+  }),
+  /**
+   * Follows the end of a run that requested `thread.settle-after-run`. Settles
+   * only when that run completed and is still the thread's latest work;
+   * otherwise it clears the request.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.settle-after-run.apply"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
   }),
   /** Records that the provider rollback `requestId` failed for good. */
   Schema.Struct({
