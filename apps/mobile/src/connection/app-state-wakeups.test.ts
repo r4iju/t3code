@@ -13,6 +13,18 @@ describe("mobileApplicationActiveWakeup", () => {
     ).toBe("application-active-probe");
   });
 
+  it("keeps the existing session eligible for reuse after two minutes in the background", () => {
+    expect(mobileApplicationActiveWakeup(20_000, 20_000 + 2 * 60_000)).toBe(
+      "application-active-probe",
+    );
+  });
+
+  it("replaces a potentially suspended session after three minutes in the background", () => {
+    expect(mobileApplicationActiveWakeup(20_000, 20_000 + 3 * 60_000)).toBe(
+      "application-active-reconnect",
+    );
+  });
+
   it("replaces the session after a meaningful background suspension", () => {
     expect(
       mobileApplicationActiveWakeup(20_000, 20_000 + MOBILE_BACKGROUND_RECONNECT_AFTER_MS),

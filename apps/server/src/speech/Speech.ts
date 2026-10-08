@@ -33,7 +33,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Hex from "effect/encoding/Hex";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -42,9 +42,10 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Result from "effect/Result";
 import * as Semaphore from "effect/Semaphore";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 
 import { issueAssetUrl, speechCacheKeyMimeType } from "../assets/AssetAccess.ts";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { writeFileAtomically } from "../atomicWrite.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -165,6 +166,7 @@ export const make = Effect.gen(function* () {
     | ServerSecretStore.ServerSecretStore
     | WorkspacePaths.WorkspacePaths
     | ProjectFaviconResolver.ProjectFaviconResolver
+    | Orchestrator.OrchestratorV2
   >();
 
   const cacheError = (cause: unknown) => new SpeechCacheError({ cause });
@@ -345,7 +347,7 @@ export const make = Effect.gen(function* () {
         "SHA-256",
         textEncoder.encode(`${speech.baseUrl}\n${speech.model}\n${speech.voice}\n${segmentText}`),
       )
-      .pipe(Effect.map(Encoding.encodeHex), Effect.mapError(cacheError));
+      .pipe(Effect.map(Hex.encode), Effect.mapError(cacheError));
 
     return yield* withKeyLock(
       hash,

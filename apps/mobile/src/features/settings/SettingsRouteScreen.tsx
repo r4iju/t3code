@@ -5,7 +5,7 @@ import { useNavigation } from "@react-navigation/native";
 import { Platform, View } from "react-native";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import { DEFAULT_READ_ALOUD_PLAYBACK_RATE, formatReadAloudPlaybackRate } from "@t3tools/contracts";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";

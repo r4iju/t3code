@@ -5,10 +5,10 @@
  */
 import type { SpeechSettings } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as Encoding from "effect/Encoding";
+import * as Base64 from "effect/encoding/Base64";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
-import { HttpClientRequest } from "effect/unstable/http";
+import { HttpClientRequest } from "effect/http";
 
 import { sendSpeechRequest, type SpeechAudioChunk, unavailable } from "./speechRequest.ts";
 
@@ -53,7 +53,7 @@ export const synthesizeSpeechChunk = Effect.fn("GeminiSpeechClient.synthesizeSpe
           .flatMap((step) => step.content ?? [])
           .findLast((content) => content.type === "audio" && content.data !== undefined);
         if (audio?.data === undefined) return yield* unavailable("The response held no audio.");
-        const bytes = Encoding.decodeBase64(audio.data);
+        const bytes = Base64.decode(audio.data);
         if (Result.isFailure(bytes)) return yield* unavailable("The audio was not valid base64.");
         return {
           bytes: bytes.success,

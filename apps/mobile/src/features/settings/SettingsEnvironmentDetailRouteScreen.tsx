@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import type { EnvironmentId, ServerProvider } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { useEffect, useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,6 +15,7 @@ import { environmentSession } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useRemoteConnections } from "../../state/use-remote-environment-registry";
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
+import { EnvironmentRoutesSection } from "./EnvironmentRoutesSection";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
@@ -174,6 +175,19 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                 onUpdate={connections.onUpdateEnvironment}
               />
             </SettingsSection>
+            <EnvironmentRoutesSection
+              environmentId={environmentId}
+              connected={connected}
+              onAddRoute={() =>
+                navigation.navigate("SettingsSheet", {
+                  screen: "SettingsContent",
+                  params: {
+                    screen: "SettingsEnvironmentNew",
+                    params: { routeFor: environmentId },
+                  },
+                })
+              }
+            />
             {!connected ? (
               <Text className="px-2 text-sm text-foreground-muted">
                 Connect this environment to manage it.
