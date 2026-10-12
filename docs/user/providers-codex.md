@@ -25,6 +25,14 @@ T3 Code can use your installed Codex and its existing login. Run `codex login`
 on the environment's machine to sign in. [Provider setup](./install.md#providers)
 covers installation and custom configuration.
 
+## Retry capacity errors
+
+Enable **Auto-retry capacity errors** in **Settings → General** for the selected
+environment (on mobile, **Settings → Agent behavior**). Codex turns that hit model
+capacity retry up to five times with increasing delays, starting around 30 seconds.
+Threads retry independently, even with no client connected. Stop cancels a pending
+retry. Authentication errors and exhausted usage limits still need your attention.
+
 ## Use multiple accounts
 
 Add another ChatGPT account in **Settings → Providers**, then select the account

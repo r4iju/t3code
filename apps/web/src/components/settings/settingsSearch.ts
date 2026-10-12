@@ -358,6 +358,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["timestamp clock locale system browser os 12 hour 24 hour"],
   },
   {
+    id: "auto-retry-capacity-errors",
+    title: "Auto-retry capacity errors",
+    to: "/settings/general",
+    scope: "environment",
+    searchTerms: ["codex overloaded model backoff retry parallel"],
+  },
+  {
     id: "response-streaming",
     title: "Response streaming",
     to: "/settings/general",
