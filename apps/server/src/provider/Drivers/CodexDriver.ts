@@ -205,7 +205,13 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv, Path.Pat
           enabled,
           config,
         },
-        { onUsageLimits: (update) => snapshot.applyUsageLimits(update) },
+        {
+          onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+          autoRetryCapacityErrors: serverSettings.getSettings.pipe(
+            Effect.map((settings) => settings.autoRetryCapacityErrors),
+            Effect.orElseSucceed(() => false),
+          ),
+        },
       ).pipe(
         Effect.mapError(
           (cause) =>

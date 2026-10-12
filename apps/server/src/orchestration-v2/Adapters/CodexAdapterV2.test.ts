@@ -1966,6 +1966,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       Effect.void,
     onRequest: (method: string, params: unknown) => Effect.Effect<void> = () => Effect.void,
     readChildMetadata?: Parameters<typeof withCodexReplayChildMetadata>[2],
+    autoRetryCapacityErrors = false,
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -2007,6 +2008,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       const adapter = yield* CodexAdapterV2.makeCodexAdapterV2({
         instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
         settings: DEFAULT_CODEX_SETTINGS,
+        autoRetryCapacityErrors: Effect.succeed(autoRetryCapacityErrors),
         environment: {},
         clientFactory,
         crypto: yield* Crypto.Crypto,
@@ -3259,6 +3261,167 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         ),
       ),
     ),
+  );
+
+  it.effect.each(["recovery", "exhaustion", "stop", "disabled", "unrelated", "parallel"] as const)(
+    "handles capacity retries: %s",
+    (mode) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const makeScenario = (suffix: string) =>
+            Effect.gen(function* () {
+              const scenario = `codex-capacity-${mode}-${suffix}`;
+              const nativeThreadId = `native-${scenario}-thread`;
+              const nativeTurnId = `native-${scenario}-turn`;
+              const failures = mode === "exhaustion" ? 6 : 1;
+              const retryCount =
+                mode === "exhaustion" ? 5 : mode === "recovery" || mode === "parallel" ? 1 : 0;
+              const waits = yield* Effect.forEach([0, 1, 2, 3, 4], () => Deferred.make<void>());
+              const entries: Array<CodexReplay.CodexAppServerReplayEntry> = codexReplayPreamble({
+                nativeThreadId,
+                nativeTurnId,
+                prompt: "Continue work.",
+              });
+              const terminal = (
+                id: string,
+                status: "failed" | "completed",
+              ): CodexReplay.CodexAppServerReplayEntry => ({
+                type: "emit_inbound",
+                label: `terminal-${id}`,
+                frame: {
+                  method: "turn/completed",
+                  params: {
+                    threadId: nativeThreadId,
+                    turn: {
+                      ...makeCodexReplayTurn({ id, status }),
+                      error:
+                        status === "completed"
+                          ? null
+                          : {
+                              message:
+                                mode === "unrelated"
+                                  ? "Please sign in."
+                                  : "Selected model is at capacity. Please try a different model.",
+                              codexErrorInfo: mode === "unrelated" ? "unauthorized" : "other",
+                            },
+                    },
+                  },
+                },
+              });
+              entries.push(terminal(nativeTurnId, "failed"));
+              for (let index = 1; index <= retryCount; index++) {
+                const retryId = `${nativeTurnId}-${index}`;
+                entries.push(
+                  ...codexReplayPreamble({ nativeThreadId, nativeTurnId: retryId, prompt: "" })
+                    .slice(5)
+                    .map((entry) => {
+                      const updated =
+                        entry.type !== "runtime_exit" &&
+                        Predicate.isObject(entry.frame) &&
+                        "id" in entry.frame
+                          ? withReplayRequestId(entry, 3 + index)
+                          : entry;
+                      if (
+                        updated.type !== "expect_outbound" ||
+                        !Predicate.isObject(updated.frame) ||
+                        !Predicate.isObject(updated.frame.params)
+                      )
+                        return updated;
+                      return {
+                        ...updated,
+                        frame: { ...updated.frame, params: { ...updated.frame.params, input: [] } },
+                      };
+                    }),
+                  terminal(retryId, failures > 1 ? "failed" : "completed"),
+                );
+              }
+              let startRequests = 0;
+              const harness = yield* makeCodexReplayHarness(
+                makeCodexReplayTranscript({ scenario, entries }),
+                (event) =>
+                  event.type === "turn_item.updated" &&
+                  event.turnItem.type === "error" &&
+                  event.turnItem.status === "running" &&
+                  event.turnItem.retry != null
+                    ? Deferred.succeed(waits[event.turnItem.retry.attempt - 1]!, undefined)
+                    : Effect.void,
+                (method) =>
+                  Effect.sync(() => {
+                    if (method === "turn/start") startRequests++;
+                  }),
+                undefined,
+                mode !== "disabled",
+              );
+              yield* harness.runtime.startTurn(
+                makeCodexTestTurnInput({
+                  threadId: harness.threadId,
+                  providerThread: harness.providerThread,
+                  now: yield* DateTime.now,
+                  attemptId: RunAttemptId.make(`attempt-${scenario}`),
+                  text: "Continue work.",
+                }),
+              );
+              return { harness, waits, startRequests: () => startRequests, retryCount };
+            });
+          const scenarios = yield* Effect.all(
+            mode === "parallel" ? [makeScenario("a"), makeScenario("b")] : [makeScenario("a")],
+            { concurrency: "unbounded" },
+          );
+          if (mode === "disabled" || mode === "unrelated") {
+            for (const { harness, startRequests } of scenarios) {
+              yield* harness.firstTerminal;
+              assert.equal(startRequests(), 1);
+              assert.equal(harness.terminalEvents()[0]?.status, "failed");
+            }
+            return;
+          }
+          for (let attempt = 0; attempt < (mode === "exhaustion" ? 5 : 1); attempt++) {
+            for (const { harness, waits } of scenarios) {
+              const result = yield* Effect.race(
+                Deferred.await(waits[attempt]!).pipe(Effect.as("retry")),
+                harness.firstTerminal.pipe(Effect.as("terminal")),
+              );
+              assert.equal(result, "retry");
+              assert.equal(harness.terminalEvents().length, 0);
+            }
+            if (mode === "stop") {
+              const { harness } = scenarios[0]!;
+              const running = harness.events.find(
+                (event) => event.type === "provider_turn.updated",
+              );
+              assert(running?.type === "provider_turn.updated");
+              yield* harness.runtime.interruptTurn({
+                providerThread: harness.providerThread,
+                providerTurnId: running.providerTurn.id,
+              });
+            }
+            yield* TestClock.adjust(mode === "exhaustion" ? "380 seconds" : "38 seconds");
+          }
+          for (const { harness, startRequests, retryCount } of scenarios) {
+            yield* harness.firstTerminal;
+            assert.equal(harness.terminalEvents().length, 1);
+            assert.equal(
+              harness.terminalEvents()[0]?.status,
+              mode === "exhaustion" ? "failed" : mode === "stop" ? "interrupted" : "completed",
+            );
+            assert.equal(startRequests(), retryCount + 1);
+            const retries = harness.events.flatMap((event) =>
+              event.type === "turn_item.updated" &&
+              event.turnItem.type === "error" &&
+              event.turnItem.retry != null &&
+              event.turnItem.status === "running"
+                ? [event.turnItem.retry]
+                : [],
+            );
+            for (const [index, retry] of retries.entries()) {
+              assert.equal(retry.attempt, index + 1);
+              const baseDelay = Math.min(30_000 * 2 ** index, 300_000);
+              assert.isAtLeast(retry.retryDelayMs!, baseDelay);
+              assert.isAtMost(retry.retryDelayMs!, baseDelay * 1.25);
+            }
+          }
+        }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      ),
   );
 
   it.effect("resolves retryable app-server errors on resumed provider activity", () =>
