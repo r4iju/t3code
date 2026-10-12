@@ -626,6 +626,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.responseStreamingMode !== DEFAULT_UNIFIED_SETTINGS.responseStreamingMode
         ? ["Response streaming"]
         : []),
+      ...(settings.autoRetryCapacityErrors !== DEFAULT_UNIFIED_SETTINGS.autoRetryCapacityErrors
+        ? ["Auto-retry capacity errors"]
+        : []),
       ...(settings.enableProviderUpdateChecks !==
       DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
         ? ["Provider update checks"]
@@ -705,6 +708,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.panelAnimationDurationMs,
       settings.responseStreamingMode,
       settings.persistComposerContextStrip,
+      settings.autoRetryCapacityErrors,
       settings.enableProviderUpdateChecks,
       settings.continueThreadsAfterServerUpdate,
       settings.sidebarAutoSettleAfterDays,
@@ -821,6 +825,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
       snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
+      autoRetryCapacityErrors: DEFAULT_UNIFIED_SETTINGS.autoRetryCapacityErrors,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
@@ -2531,6 +2536,30 @@ export function GeneralSettingsPanel() {
                 </SelectItem>
               </SelectPopup>
             </Select>
+          }
+        />
+        <SettingsRow
+          serverScoped
+          settingKeys={["autoRetryCapacityErrors"]}
+          {...searchableSetting("auto-retry-capacity-errors")}
+          description="Retry Codex model capacity errors up to five times with increasing delays. Each thread retries independently; Stop cancels its retry."
+          resetAction={
+            settings.autoRetryCapacityErrors ? (
+              <SettingResetButton
+                label="capacity retries"
+                onClick={() => updateSettings({ autoRetryCapacityErrors: false })}
+              />
+            ) : null
+          }
+          control={
+            <ScopedSwitch
+              settingKeys={["autoRetryCapacityErrors"]}
+              checked={settings.autoRetryCapacityErrors}
+              onCheckedChange={(checked) =>
+                updateSettings({ autoRetryCapacityErrors: Boolean(checked) })
+              }
+              aria-label="Auto-retry capacity errors"
+            />
           }
         />
         <SettingsRow
