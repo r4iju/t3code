@@ -134,6 +134,11 @@ sending an answer or restarting the agent. Settling also closes the thread's
 terminals that wait at an idle prompt, and keeps their output. A terminal that
 runs a command, such as a dev server, stays open.
 
+An agent can also settle its own thread when its turn ends. This suits a recurring
+scheduled task: tell the agent in the task's prompt to settle the thread when it found nothing
+new, and quiet runs stay out of your active list. A message you send, another scheduled run, or
+un-settling or pinning the thread before the turn ends keeps it active.
+
 On web and desktop, press a thread's **Settle** button and drag up or down to
 settle every thread in that section between it and the one you release on.
 The **Un-settle** and **Wake** buttons work the same way in their sections.
