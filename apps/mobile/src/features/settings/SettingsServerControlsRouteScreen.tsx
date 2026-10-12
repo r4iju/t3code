@@ -413,6 +413,16 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       />
                     ))}
                   </SettingsSection>
+                  <SettingsSection title="Capacity errors">
+                    <SettingsSwitchRow
+                      icon="arrow.clockwise"
+                      label="Auto-retry capacity errors"
+                      subtitle="Retry Codex capacity errors up to five times with increasing delays. Stop cancels the retry."
+                      value={uniform("autoRetryCapacityErrors")}
+                      disabled={disabledFor("autoRetryCapacityErrors")}
+                      onValueChange={(value) => write({ autoRetryCapacityErrors: value })}
+                    />
+                  </SettingsSection>
                   <SettingsSection title="Preview browser">
                     <SettingsSwitchRow
                       icon="globe"
