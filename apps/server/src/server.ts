@@ -583,10 +583,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
 ).pipe(
   // Core Services
+  Layer.provideMerge(Speech.layer.pipe(Layer.provide(layerServerSettings))),
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
-  Layer.provideMerge(Speech.layer.pipe(Layer.provide(layerServerSettings))),
   Layer.provideMerge(layerServerSettings),
   // The asset route uses the registry's GitHub credential for private PR media, which the
   // built-in drivers' layer provides alongside the registry.

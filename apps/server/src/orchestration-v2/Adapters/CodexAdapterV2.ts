@@ -6096,7 +6096,6 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 type: "turn_item.updated",
                 driver: CODEX_PROVIDER,
                 turnItem: makeProviderRetryTurnItem({
-                  idAllocator,
                   driver: CODEX_PROVIDER,
                   threadId: context.projectionThreadId,
                   runId: context.projectionRunId,

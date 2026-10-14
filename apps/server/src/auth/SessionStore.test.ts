@@ -732,7 +732,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(closed?.epochMilliseconds).toBe(
         Duration.toMillis(Duration.sum(Duration.minutes(1), Duration.days(3))),
       );
-    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
   );
 
   it.effect("coalesces last-seen writes from authenticated requests to one per hour", () =>
@@ -756,7 +756,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect((yield* sessions.listActive())[0]?.lastSeenAt?.epochMilliseconds).toBe(
         Duration.toMillis(Duration.minutes(62)),
       );
-    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
   );
 
   it.effect("never advances last seen on a revoked session", () =>
@@ -781,7 +781,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(Option.getOrThrow(row).lastSeenAt?.epochMilliseconds).toBe(
         Duration.toMillis(Duration.minutes(1)),
       );
-    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
   );
 
   it.effect("publishes a client update when last seen advances", () =>
@@ -811,7 +811,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       yield* sessions.recordSeen(issued.sessionId);
       expect(yield* Queue.size(changes)).toBe(0);
       yield* Fiber.interrupt(streamFiber);
-    }).pipe(Effect.provide(Layer.merge(makeSessionStoreLayer(), TestClock.layer()))),
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
   );
 
   it.effect("keeps connected relay sessions visible through expiry and HTTP renewal", () =>
@@ -973,7 +973,7 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
 
       yield* sessions.revoke(watched.sessionId);
       yield* Fiber.join(removal);
-    }).pipe(Effect.provide(makeSessionStoreLayer())),
+    }).pipe(Effect.provide(layerSessionStore())),
   );
 
   it.effect("awaitRemoval settles immediately for a session revoked before it subscribed", () =>
@@ -985,6 +985,6 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       // Subscribing after the revocation event was published cannot rely on the
       // stream; the stored revocation has to be enough.
       yield* sessions.awaitRemoval(issued.sessionId);
-    }).pipe(Effect.provide(makeSessionStoreLayer())),
+    }).pipe(Effect.provide(layerSessionStore())),
   );
 });

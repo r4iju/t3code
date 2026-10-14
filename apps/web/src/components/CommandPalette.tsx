@@ -218,7 +218,11 @@ import {
   CommandPaletteMetaDot,
   ThreadCommandSubtitle,
 } from "./ThreadCommandSubtitle";
-import { ThreadRowLeadingStatus, ThreadRowTrailingStatus, ThreadSearchPullRequestNumber } from "./ThreadStatusIndicators";
+import {
+  ThreadRowLeadingStatus,
+  ThreadRowTrailingStatus,
+  ThreadSearchPullRequestNumber,
+} from "./ThreadStatusIndicators";
 import { readLatestAloud, useReadAloudActive } from "../state/readAloud";
 import { primaryServerKeybindingsAtom, primaryServerProvidersAtom } from "../state/server";
 import {

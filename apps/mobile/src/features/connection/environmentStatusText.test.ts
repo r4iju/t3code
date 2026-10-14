@@ -27,13 +27,19 @@ describe("environment status text", () => {
       phase: "unsupported",
       error: compatibilityMessage(serverProtocolVersion),
       traceId: null,
+      blockedReason: null,
     });
     expect(text).toContain(guidance);
   });
 
   it("falls back to the generic label when there is no detail", () => {
-    expect(environmentStatusText({ phase: "unsupported", error: null, traceId: null })).toBe(
-      "Client not supported",
-    );
+    expect(
+      environmentStatusText({
+        phase: "unsupported",
+        error: null,
+        traceId: null,
+        blockedReason: null,
+      }),
+    ).toBe("Client not supported");
   });
 });

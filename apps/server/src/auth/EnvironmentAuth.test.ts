@@ -382,7 +382,7 @@ it.layer(NodeServices.layer)("EnvironmentAuth.layer", (it) => {
       const active = yield* sessions.listActive();
       expect(active.find((s) => s.sessionId === bound.sessionId)?.lastSeenAt).toBeNull();
       expect(active.find((s) => s.sessionId === plain.sessionId)?.lastSeenAt).not.toBeNull();
-    }).pipe(Effect.provide(makeEnvironmentAuthLayer({ mode: "web", host: "192.168.1.50" }))),
+    }).pipe(Effect.provide(layerEnvironmentAuth({ mode: "web", host: "192.168.1.50" }))),
   );
 
   it.effect("preserves pairing grants after rejecting scopes they do not grant", () =>

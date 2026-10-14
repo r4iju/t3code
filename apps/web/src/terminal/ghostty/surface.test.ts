@@ -131,7 +131,6 @@ describe("GhosttyTerminalSurface visibility", () => {
 
     const canvas = new TerminalTestElement();
     const mount = new TerminalTestElement();
-    let input: TerminalTestElement | undefined;
     const context = {
       canvas,
       beginPath() {},
@@ -151,12 +150,7 @@ describe("GhosttyTerminalSurface visibility", () => {
       }),
     };
     vi.stubGlobal("document", {
-      createElement: (tag: string) => {
-        if (tag === "canvas") return canvas;
-        const element = new TerminalTestElement();
-        if (tag === "textarea") input = element;
-        return element;
-      },
+      createElement: (tag: string) => (tag === "canvas" ? canvas : new TerminalTestElement()),
       fonts: Object.assign(new EventTarget(), { load: async () => [], add() {} }),
     });
     vi.stubGlobal(
@@ -245,27 +239,6 @@ describe("GhosttyTerminalSurface visibility", () => {
             button: 0,
             buttons: type === "pointerup" ? 0 : 1,
             shiftKey: false,
-          }),
-        );
-      },
-      key(key: string, modifiers: { ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean }) {
-        input?.dispatchEvent(
-          Object.assign(new Event("keydown", { cancelable: true }), {
-            key,
-            code: `Key${key.toUpperCase()}`,
-            altKey: false,
-            ctrlKey: false,
-            metaKey: false,
-            shiftKey: false,
-            ...modifiers,
-            getModifierState: () => false,
-          }),
-        );
-      },
-      paste(text: string) {
-        input?.dispatchEvent(
-          Object.assign(new Event("paste", { cancelable: true }), {
-            clipboardData: { getData: () => text },
           }),
         );
       },
@@ -811,23 +784,48 @@ describe("GhosttyTerminalSurface visibility", () => {
     expect(readText).not.toHaveBeenCalled();
   });
 
-  it("pastes once when the shortcut's clipboard read lands before the native paste", async () => {
+  it("pastes once per shortcut whichever of the clipboard read and native paste lands first", async () => {
     const harness = createHarness();
-    vi.stubGlobal("navigator", {
-      platform: "MacIntel",
-      clipboard: { readText: async () => "echo hi" },
-    });
-    await harness.create({ beforeKey: () => true });
+    const readText = vi.fn(async () => "echo hi");
+    vi.stubGlobal("navigator", { platform: "MacIntel", clipboard: { readText } });
+    const surface = await harness.create({ beforeKey: () => true });
+    const paste = (text: string) =>
+      surface.input.dispatchEvent(
+        Object.assign(new Event("paste", { cancelable: true }), {
+          clipboardData: { getData: () => text },
+        }),
+      );
+    const settleRead = async (reads: number) => {
+      expect(readText).toHaveBeenCalledTimes(reads);
+      await readText.mock.results[reads - 1]?.value;
+    };
 
-    harness.key("v", { metaKey: true });
-    await vi.waitFor(() => expect(harness.onData).toHaveBeenCalledTimes(1));
-    harness.paste("echo hi");
+    // Read first (Chromium menu paste): the native paste that follows is dropped.
+    key(surface, "v", "KeyV", { metaKey: true });
+    await settleRead(1);
+    paste("echo hi");
+    key(surface, "v", "KeyV", { metaKey: true }, "keyup");
     expect(harness.onData).toHaveBeenCalledTimes(1);
 
-    // The next paste gesture is a new paste, not the tail of the last one.
-    harness.key("v", { metaKey: true });
-    harness.paste("echo hi");
+    // Native first: the read that settles afterwards is dropped.
+    key(surface, "v", "KeyV", { metaKey: true });
+    paste("echo hi");
+    await settleRead(2);
+    key(surface, "v", "KeyV", { metaKey: true }, "keyup");
     expect(harness.onData).toHaveBeenCalledTimes(2);
+
+    // A shortcut served only by the read must not swallow a later Edit → Paste
+    // of the same text, after the keyup or after a blur.
+    key(surface, "v", "KeyV", { metaKey: true });
+    await settleRead(3);
+    key(surface, "v", "KeyV", { metaKey: true }, "keyup");
+    paste("echo hi");
+    key(surface, "v", "KeyV", { metaKey: true });
+    await settleRead(4);
+    surface.input.dispatchEvent(new Event("blur"));
+    paste("echo hi");
+    expect(harness.onData).toHaveBeenCalledTimes(6);
+    expect(new Set(harness.onData.mock.calls.map(([data]) => data))).toEqual(new Set(["echo hi"]));
   });
 
   it("starts a selection when dragging from a link", async () => {

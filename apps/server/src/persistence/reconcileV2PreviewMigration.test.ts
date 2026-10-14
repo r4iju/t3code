@@ -159,6 +159,12 @@ it.effect("upgrades the released fork ledger without skipping V2 or changing old
     assert.deepStrictEqual(yield* runMigrations(), [
       [57, "OrchestrationV2"],
       [58, "RemoveRedundantProjectionIndexes"],
+      [59, "ScheduledTaskWebhooks"],
+      [60, "WebhookRelayDeliveries"],
+      [61, "McpAppModelContext"],
+      [62, "ThreadSnapshotWindowIndexes"],
+      [63, "PullRequestReviewGuides"],
+      [64, "ThreadFailureLookupIndex"],
     ]);
     assert.deepStrictEqual(
       yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 56 ORDER BY migration_id`,

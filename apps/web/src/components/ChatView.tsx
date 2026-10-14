@@ -298,7 +298,7 @@ import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
 import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
-import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import { resolveShortcutCommand } from "../keybindings";
 import { readAloud, readLatestAloud } from "../state/readAloud";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";

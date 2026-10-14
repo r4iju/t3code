@@ -1932,7 +1932,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       const reloaded = yield* reloadSettings;
       assert.deepEqual(reloaded.speech?.apiKeys, [firstKey, secondKey]);
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
+    }).pipe(Effect.provide(layerServerSettings())),
   );
 
   it.effect("resolves markers sent back so keys can be reordered, removed, and added", () =>
@@ -1956,7 +1956,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         secondKey,
         "sk-third-account-cccc",
       ]);
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
+    }).pipe(Effect.provide(layerServerSettings())),
   );
 
   it.effect("reads a single key saved before there were several", () =>
@@ -1971,7 +1971,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       );
       yield* fileSystem.writeFileString(
         serverConfig.settingsPath,
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
           speech: { ...legacySpeech, apiKey: "\u2022\u2022\u2022\u2022\u2022\u2022" },
         }),
@@ -1996,7 +1995,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(saved.speech?.apiKeys, ["sk-legacy-key"]);
       assert.deepEqual((yield* reloadSettings).speech?.apiKeys, ["sk-legacy-key"]);
     }).pipe(
-      Effect.provide(ServerSecretStore.layer.pipe(Layer.provideMerge(makeServerSettingsLayer()))),
+      Effect.provide(ServerSecretStore.layer.pipe(Layer.provideMerge(layerServerSettings()))),
     ),
   );
 
@@ -2024,7 +2023,7 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       const off = yield* serverSettings.updateSettings({ speech: null });
       assert.isNull(off.speech);
       assert.isFalse(yield* fileSystem.exists(secretPath));
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
+    }).pipe(Effect.provide(layerServerSettings())),
   );
   it.effect("rolls back provider secret changes when the settings file commit fails", () =>
     Effect.gen(function* () {

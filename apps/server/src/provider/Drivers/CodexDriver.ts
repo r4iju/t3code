@@ -147,6 +147,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv, Path.Pat
           enabled,
           config,
         });
+      const host = yield* ProviderHost.ProviderHost;
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const resetCreditCoordinator = yield* ResetCreditCoordinator.ResetCreditCoordinator;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -207,7 +208,7 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv, Path.Pat
         },
         {
           onUsageLimits: (update) => snapshot.applyUsageLimits(update),
-          autoRetryCapacityErrors: serverSettings.getSettings.pipe(
+          autoRetryCapacityErrors: host.settings.get.pipe(
             Effect.map((settings) => settings.autoRetryCapacityErrors),
             Effect.orElseSucceed(() => false),
           ),

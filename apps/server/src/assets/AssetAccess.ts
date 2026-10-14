@@ -174,8 +174,10 @@ const AssetClaimsSchema = Schema.Union([
     version: Schema.Literal(1),
     kind: Schema.Literal("speech"),
     cacheKey: Schema.String,
+    expiresAt: Schema.Number,
   }),
   Schema.Struct({
+    version: Schema.Literal(1),
     kind: Schema.Literal("tool-output-image"),
     threadId: ThreadId,
     itemId: TurnItemId,

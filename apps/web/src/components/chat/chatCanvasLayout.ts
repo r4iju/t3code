@@ -196,16 +196,5 @@ export function resolveChatCanvasLayout({
     frame.x + frame.width > detailsCard.left &&
     frame.y < detailsCard.bottom,
   );
-  const cardChat =
-    preview && detailsCard
-      ? resolveChatCanvasLayout({
-          container,
-          preview,
-          padding,
-          maxChatWidth,
-          minChatWidth,
-          composerHeight,
-        }).chat
-      : chat;
-  return { chat, cardChat, frame, overlapsChat, overlapsDetailsCard };
+  return { chat, frame, overlapsChat, overlapsDetailsCard };
 }

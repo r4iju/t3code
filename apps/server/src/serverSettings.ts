@@ -201,7 +201,13 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
       ? { value: "", redacted: secret.redacted || secret.value.length > 0 }
       : { value: secret.value, redacted: false },
   );
-  return { ...redacted, speech: settings.speech === null ? null : { ...settings.speech, apiKeys: settings.speech.apiKeys.map(redactSpeechApiKey) } };
+  return {
+    ...redacted,
+    speech:
+      settings.speech === null
+        ? null
+        : { ...settings.speech, apiKeys: settings.speech.apiKeys.map(redactSpeechApiKey) },
+  };
 }
 
 export function applyProviderInstanceMutation(
@@ -964,7 +970,16 @@ const make = Effect.gen(function* () {
         redacted: secret.sensitive && secret.kind === "environment" && secret.redacted,
       }));
       const speech = settings.speech;
-      return { ...materialized, speech: speech !== null && speech.apiKeys.some(isRedactedSpeechApiKey) ? { ...speech, apiKeys: resolveSpeechApiKeys(speech.apiKeys, yield* readStoredSpeechApiKeys) } : speech };
+      return {
+        ...materialized,
+        speech:
+          speech !== null && speech.apiKeys.some(isRedactedSpeechApiKey)
+            ? {
+                ...speech,
+                apiKeys: resolveSpeechApiKeys(speech.apiKeys, yield* readStoredSpeechApiKeys),
+              }
+            : speech,
+      };
     });
 
   const materializeChanges = (changes: Stream.Stream<ServerSettings>) =>
@@ -993,7 +1008,11 @@ const make = Effect.gen(function* () {
     | { readonly kind: "remove"; readonly operation: "remove-secret" | "remove-stale-secret" }
   );
 
-  const persistSettingsSecrets = (current: ServerSettings, next: ServerSettings, storedSpeechApiKeys: ReadonlyArray<string>) =>
+  const persistSettingsSecrets = (
+    current: ServerSettings,
+    next: ServerSettings,
+    storedSpeechApiKeys: ReadonlyArray<string>,
+  ) =>
     Effect.sync(() => {
       const previous = new Map<string, SettingsSecret>();
       mapSettingsSecrets(current, (secret) => {
@@ -1159,7 +1178,11 @@ const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const current = yield* getSettingsFromCache;
         const updated = yield* update(current);
-        const persisted = yield* persistSettingsSecrets(current, updated, yield* readStoredSpeechApiKeys);
+        const persisted = yield* persistSettingsSecrets(
+          current,
+          updated,
+          yield* readStoredSpeechApiKeys,
+        );
         const next = yield* normalizeServerSettings(persisted.settings);
         const materialized = yield* Effect.uninterruptibleMask(() =>
           Effect.gen(function* () {

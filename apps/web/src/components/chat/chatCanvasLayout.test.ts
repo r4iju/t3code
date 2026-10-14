@@ -369,28 +369,4 @@ describe("workspace card beside chat", () => {
       overlapsDetailsCard: false,
     });
   });
-
-  it("settles when a portrait preview floats beside the inline details card", () => {
-    const container = { width: 1200, height: 600 };
-    const portrait = { key: "p", width: null, position: null, source: { width: 240, height: 520 } };
-    let card: { left: number; right: number; bottom: number } | null = null;
-    let previous = "";
-    for (let pass = 0; pass < 4; pass++) {
-      const layout = resolveChatCanvasLayout({
-        container,
-        preview: portrait,
-        composerHeight: 120,
-        detailsCard: card,
-      });
-      const placement = resolveThreadDetailsCardLayout({
-        container,
-        chat: layout.cardChat,
-        frame: null,
-      })!;
-      card = { left: placement.x, right: placement.x + placement.width, bottom: placement.y + 400 };
-      const state = JSON.stringify([card, layout.frame]);
-      if (pass > 1) expect(state).toBe(previous);
-      previous = state;
-    }
-  });
 });

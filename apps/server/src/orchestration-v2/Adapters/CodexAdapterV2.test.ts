@@ -3420,7 +3420,11 @@ describe("CodexAdapterV2 post-settle continuation", () => {
               assert.isAtMost(retry.retryDelayMs!, baseDelay * 1.25);
             }
           }
-        }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
       ),
   );
 

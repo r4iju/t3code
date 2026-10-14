@@ -1286,7 +1286,6 @@ const layerWsRpc = (
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
       const speech = yield* Speech.Speech;
-      const speechProjections = yield* ProjectionStore.ProjectionStoreV2;
       const terminalManager = yield* TerminalManager.TerminalManager;
       const previewManager = yield* PreviewManager.PreviewManager;
       const portDiscovery = yield* PortScanner.PortDiscovery;
@@ -2899,20 +2898,20 @@ const layerWsRpc = (
         [WS_METHODS.reviewGetDiffPreview]: (input) => review.getDiffPreview(input),
         [WS_METHODS.reviewGetDiffFileContents]: (input) => review.getDiffFileContents(input),
         [WS_METHODS.speechSynthesize]: (input) =>
-            Effect.gen(function* () {
-              const { source, segment } = input;
-              if (source._tag === "sample") {
-                return yield* speech.synthesizeText(SPEECH_SAMPLE_TEXT, segment);
-              }
-              const records = yield* speechProjections
-                .getThreadRecords(source.threadId, ["messages"], { messageIds: [source.messageId] })
-                .pipe(Effect.mapError((cause) => new SpeechEnvironmentError({ cause })));
-              const message = Option.fromNullishOr(records.messages[0]).pipe(
-                Option.map((message) => ({ message })),
-              );
-              const text = yield* resolveSpeechMessageText(message, source);
-              return yield* speech.synthesizeText(text, segment);
-            }),
+          Effect.gen(function* () {
+            const { source, segment } = input;
+            if (source._tag === "sample") {
+              return yield* speech.synthesizeText(SPEECH_SAMPLE_TEXT, segment);
+            }
+            const records = yield* threadManagement
+              .getThreadRecords(source.threadId, ["messages"], { messageIds: [source.messageId] })
+              .pipe(Effect.mapError((cause) => new SpeechEnvironmentError({ cause })));
+            const message = Option.fromNullishOr(records.messages[0]).pipe(
+              Option.map((message) => ({ message })),
+            );
+            const text = yield* resolveSpeechMessageText(message, source);
+            return yield* speech.synthesizeText(text, segment);
+          }),
 
         [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),
         [WS_METHODS.terminalAttach]: (input) =>

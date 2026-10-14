@@ -210,7 +210,7 @@ describe("audio asset byte ranges", () => {
       expect(full.status).toBe(200);
       expect(full.headers.get("accept-ranges")).toBe("bytes");
       expect(yield* Effect.promise(() => full.text())).toBe("0123456789");
-    }).pipe(Effect.provide(fileResponseLayer)),
+    }).pipe(Effect.provide(layerFileResponse)),
   );
 });
 

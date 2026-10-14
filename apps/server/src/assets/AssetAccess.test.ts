@@ -1472,7 +1472,7 @@ describe("AssetAccess", () => {
         resource: { _tag: "speech", cacheKey: `${"b".repeat(64)}.wav` },
       }).pipe(Effect.flip);
       expect(missing._tag).toBe("AssetWorkspaceAssetNotFoundError");
-    }).pipe(Effect.provide(testLayer)),
+    }).pipe(Effect.provide(layerTest)),
   );
 
   it.effect("serves GitHub-hosted pull request media through the repository's credential", () =>

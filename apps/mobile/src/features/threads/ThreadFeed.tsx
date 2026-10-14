@@ -1447,7 +1447,15 @@ function renderFeedEntry(
               buttonSize={28}
               iconSize={13}
             />
-            <ReadAloudButton environmentId={props.environmentId} threadId={props.threadId} messageId={message.id} text={message.text} tintColor={iconSubtleColor} buttonSize={28} iconSize={13} />
+            <ReadAloudButton
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+              messageId={message.id}
+              text={message.text}
+              tintColor={iconSubtleColor}
+              buttonSize={28}
+              iconSize={13}
+            />
             {message.projectedItem ? (
               <AssistantForkButton
                 environmentId={props.environmentId}
@@ -2599,7 +2607,6 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       onToggleWorkGroup,
       onToggleWorkRow,
       props.environmentId,
-      props.threadId,
       props.onUseArtifactTemplate,
       props.threadId,
       props.threadTitle,
