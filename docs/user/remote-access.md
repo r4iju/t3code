@@ -8,7 +8,8 @@ machine. That machine must stay running and reachable while you work.
 In the phone app, enable **Settings → Environments → Keep connected in
 background** to request up to three minutes of connection time after leaving
 the app. This is off by default and uses more battery. Android shows an ongoing
-notification during that window; iOS may end the window sooner. Returning to
+notification during that window when notifications are allowed; iOS may end
+the window sooner. Returning to
 the app checks the connection and reconnects if needed. This works with direct
 connections and T3 Connect, but cannot keep a VPN or the host machine online.
 

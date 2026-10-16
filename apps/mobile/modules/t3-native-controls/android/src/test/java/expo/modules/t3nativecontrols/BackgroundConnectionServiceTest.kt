@@ -41,6 +41,18 @@ class BackgroundConnectionServiceTest {
   }
 
   @Test
+  @Config(sdk = [34])
+  fun aDelayedStartUsesOnlyTheRemainingBackgroundWindow() {
+    BackgroundConnectionService.start(context, 180_000)
+    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(2))
+    val controller = Robolectric.buildService(BackgroundConnectionService::class.java).create()
+    controller.startCommand(0, 1)
+    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(1))
+    assertTrue(shadowOf(controller.get()).isStoppedBySelf)
+    controller.destroy()
+  }
+
+  @Test
   fun duplicateStartsDoNotExtendTheBackgroundDeadline() {
     BackgroundConnectionService.start(context, 180_000)
     val controller = Robolectric.buildService(BackgroundConnectionService::class.java).create()
