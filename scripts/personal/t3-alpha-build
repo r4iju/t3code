@@ -35,16 +35,17 @@ if [[ -n "$LATEST_TAG" ]] && ! git merge-base --is-ancestor "$LATEST_TAG" HEAD; 
   echo "error: HEAD does not contain $LATEST_TAG ($(git rev-parse --short "$LATEST_TAG^{}")); building it would downgrade every Mac." >&2
   exit 1
 fi
+LAST="${LATEST_TAG#desktop-v}"
 if [[ -n "${1:-}" ]]; then
   VERSION="$1"
 else
-  LAST="$(git tag -l 'desktop-v*' --sort=-v:refname | head -1)"
   [[ -n "$LAST" ]] || { echo "error: no desktop-v* tag yet; pass a version." >&2; exit 1; }
-  LAST="${LAST#desktop-v}"
   VERSION="${LAST%.*}.$((${LAST##*.} + 1))"
 fi
-if git rev-parse -q --verify "refs/tags/desktop-v$VERSION" >/dev/null; then
-  echo "error: desktop-v$VERSION is already tagged." >&2
+# The latest tag must stay the newest release, or the check above compares
+# against the wrong one.
+if [[ -n "$LAST" && "$(printf '%s\n' "$LAST" "$VERSION" | sort -V | tail -1)" != "$VERSION" || "$VERSION" == "$LAST" ]]; then
+  echo "error: version $VERSION is not newer than the latest release $LAST." >&2
   exit 1
 fi
 ZIP="$REPO/release/T3-Code-$VERSION-arm64.zip"
@@ -66,6 +67,8 @@ STAGE="$(mktemp -d /tmp/t3-alpha-build.XXXXXX)"
 trap 'rm -rf "$STAGE"; git -C "$REPO" diff --name-only -z -- "*package.json" | xargs -0 git -C "$REPO" checkout --' EXIT
 
 vp i
+MIGRATION_ID="$(node -e 'import("./apps/server/src/persistence/Migrations.ts").then((m) => console.log(m.migrationManifest.at(-1)[0]))')"
+[[ "$MIGRATION_ID" =~ ^[0-9]+$ ]] || { echo "error: cannot read the migration manifest." >&2; exit 1; }
 node scripts/update-release-package-versions.ts "$VERSION"
 node scripts/build-desktop-artifact.ts --platform mac --target zip --arch arm64 --build-version "$VERSION"
 
@@ -87,6 +90,8 @@ sign_app() { # <app>
 
 ditto -x -k "$ZIP" "$STAGE"
 APP="$(find "$STAGE" -maxdepth 1 -name '*.app' | head -1)"
+# t3-alpha-install refuses a build that knows fewer migrations than the database.
+echo "$MIGRATION_ID" > "$APP/Contents/Resources/t3-migration-id"
 sign_app "$APP" 2> >(grep -v 'replacing existing signature' >&2)
 rm -f "$ZIP" "$ZIP.blockmap"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"

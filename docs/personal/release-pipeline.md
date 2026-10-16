@@ -78,6 +78,9 @@ scripts/personal/t3-alpha-deploy release/T3-Code-0.0.47-arm64.zip
   not contain the latest `desktop-v*` tag. A Mac's database keeps the migrations of the newest
   build it ran, so an older build rejects its sessions and tokens. Merge a branch before
   shipping it, including an upstream rebase; the nightly builds `main` and would undo it.
+  An explicit version must be newer than the latest tag. The build records its last migration
+  id in the app, and the installer refuses a build behind the Mac's database. It also skips the
+  rollback when a failed build already migrated, since the previous build cannot read it.
 - **Signing:** the build is signed with the Apple Development certificate in studio's keychain.
   macOS privacy grants (Screen Recording, Accessibility, …), keychain access and Little Snitch
   rules are tied to that signature, so they carry over between builds. An unsigned build is a
