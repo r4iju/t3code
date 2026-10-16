@@ -294,18 +294,10 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
     Effect.gen(function* () {
       const { threads, projection, caller } = yield* readThread(input.threadId);
       const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
-      if (input.action === "settle_after_run") {
-        // Only the agent running a thread knows whether its run was worth the user's attention.
-        if (caller === undefined || caller.id !== projection.thread.id || !caller.activeRunId) {
-          return yield* new OrchestratorMcpFailure({
-            code: "invalid_request",
-            message: "settle_after_run applies only to the calling thread's own active run.",
-          });
-        }
-        const result = yield* threads
-          .dispatch({ ...common, type: "thread.settle-after-run", runId: caller.activeRunId })
+      if (input.action === "settle") {
+        return yield* threads
+          .settleThread({ ...common, byOwnAgent: caller?.id === projection.thread.id })
           .pipe(Effect.mapError(dispatchFailure));
-        return { sequence: result.sequence };
       }
       let command: OrchestrationV2Command;
       switch (input.action) {

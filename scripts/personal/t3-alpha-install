@@ -10,7 +10,11 @@
 #   app -> backup old bundle -> ditto-extract the zip (no quarantine) -> strip
 #   quarantine BEFORE first exec -> unstick recipe -> launch (with fallbacks)
 #   -> verify a process exists, :3773 listens, and the RUNNING instance reports
-#   the expected version. On failure, roll back to the backup and relaunch it.
+#   the expected version. On failure, roll back to the backup and relaunch it,
+#   unless the failed build already migrated the database.
+#
+# A build that knows fewer schema migrations than this Mac's database is never
+# installed, whatever its version number says.
 #
 # Two known ways a relaunch silently fails on this Mac:
 #   1. `open -a` right after the old instance quits: LaunchServices still has
@@ -93,6 +97,16 @@ busy_turns() {
       "SELECT COUNT(*) FROM projection_thread_sessions
        WHERE (status = 'running' AND active_turn_id IS NOT NULL) OR status = 'starting';"
   fi
+}
+
+# The highest schema migration this Mac's database has recorded. A build that
+# knows fewer migrations runs on it anyway and cannot read what newer ones
+# wrote, which took every session and bearer token down with 401s (0.0.64).
+db_migration_id() {
+  local db="$HOME/.t3/userdata/statev2.sqlite"
+  [[ -f "$db" ]] || { echo 0; return; }
+  /usr/bin/sqlite3 -readonly -cmd ".timeout 5000" "$db" \
+    "SELECT COALESCE(MAX(migration_id), 0) FROM effect_sql_migrations;"
 }
 
 if [[ "${1:-}" != "--detached" ]]; then
@@ -291,6 +305,19 @@ if ! codesign --verify --deep --strict -R="$SIGNED_REQUIREMENT" "$NEW_APP"; then
   notify "$APP_NAME $NEW_VER is unsigned; nothing installed. See $LOG"
   exit 1
 fi
+# t3-alpha-build records the last migration each build knows.
+NEW_MIGRATION=$(cat "$NEW_APP/Contents/Resources/t3-migration-id" 2>/dev/null)
+DB_MIGRATION=$(db_migration_id)
+if ! [[ "$NEW_MIGRATION" =~ ^[0-9]+$ && "$DB_MIGRATION" =~ ^[0-9]+$ ]]; then
+  log "ERROR: cannot compare schemas (build knows '${NEW_MIGRATION:-unrecorded}', database has '${DB_MIGRATION:-unreadable}'); nothing installed."
+  notify "$APP_NAME $NEW_VER not installed: schema check failed. See $LOG"
+  exit 1
+fi
+if ((DB_MIGRATION > NEW_MIGRATION)); then
+  log "ERROR: the database has migration $DB_MIGRATION but $NEW_VER only knows up to $NEW_MIGRATION; installing it would be a downgrade. Nothing installed."
+  notify "$APP_NAME $NEW_VER is older than this Mac's database; nothing installed. See $LOG"
+  exit 1
+fi
 
 stop_app
 
@@ -316,6 +343,13 @@ notify "$APP_NAME $NEW_VER failed to start; rolling back. See $LOG"
 stop_app
 FAILED="${APP%.app}.failed-$(date +%Y%m%d-%H%M%S).app"
 mv "$APP" "$FAILED" 2>/dev/null && log "Kept failed bundle at $FAILED"
+NOW_MIGRATION=$(db_migration_id)
+if [[ "$NOW_MIGRATION" != "$DB_MIGRATION" ]]; then
+  # The previous build cannot read what the failed one migrated; fix forward.
+  log "ERROR: $NEW_VER migrated the database from $DB_MIGRATION to ${NOW_MIGRATION:-unreadable}, so the previous build cannot run on it. Not rolling back; previous bundle kept at $BACKUP."
+  notify "$APP_NAME $NEW_VER failed after migrating; not rolled back. See $LOG"
+  exit 1
+fi
 if [[ -n "$BACKUP" && -d "$BACKUP" ]]; then
   mv "$BACKUP" "$APP"
   EXPECT_VERSION=""  # the backup is the previous version by definition

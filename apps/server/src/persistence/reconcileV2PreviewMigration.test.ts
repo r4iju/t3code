@@ -41,6 +41,10 @@ describe("V2 preview upgrade", () => {
         [58, "RemoveRedundantProjectionIndexes"],
         [59, "ScheduledTaskWebhooks"],
         [60, "WebhookRelayDeliveries"],
+        [61, "McpAppModelContext"],
+        [62, "ThreadSnapshotWindowIndexes"],
+        [63, "PullRequestReviewGuides"],
+        [64, "ThreadFailureLookupIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -124,6 +128,10 @@ describe("V2 preview upgrade", () => {
         [58, "RemoveRedundantProjectionIndexes"],
         [59, "ScheduledTaskWebhooks"],
         [60, "WebhookRelayDeliveries"],
+        [61, "McpAppModelContext"],
+        [62, "ThreadSnapshotWindowIndexes"],
+        [63, "PullRequestReviewGuides"],
+        [64, "ThreadFailureLookupIndex"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -153,6 +161,10 @@ it.effect("upgrades the released fork ledger without skipping V2 or changing old
       [58, "RemoveRedundantProjectionIndexes"],
       [59, "ScheduledTaskWebhooks"],
       [60, "WebhookRelayDeliveries"],
+      [61, "McpAppModelContext"],
+      [62, "ThreadSnapshotWindowIndexes"],
+      [63, "PullRequestReviewGuides"],
+      [64, "ThreadFailureLookupIndex"],
     ]);
     assert.deepStrictEqual(
       yield* sql`SELECT * FROM effect_sql_migrations WHERE migration_id <= 56 ORDER BY migration_id`,

@@ -1,3 +1,4 @@
+import { RegistryContext, useAtomMount } from "@effect/atom-react";
 import {
   AudioModule,
   RecordingPresets,
@@ -20,10 +21,16 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, Platform } from "react-native";
+import { AsyncResult } from "effect/reactivity";
 import { useSharedValue } from "react-native-reanimated";
 
+import {
+  microphoneOrder,
+  preferredMicrophoneInput,
+  rememberMicrophones,
+} from "../../lib/microphonePriority";
 import { getLocalVoiceTranscriber } from "../../native/voiceTranscription";
-import { readAloud, setVoiceInputActive } from "../read-aloud/readAloud";
+import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { getNativeShowcaseScene } from "../showcase/nativeShowcaseScene";
 import {
   VOICE_RECORDING_LIMIT_SECONDS,
@@ -33,6 +40,8 @@ import {
 import { createLazyVoiceRecorder, type LazyVoiceRecorder } from "./lazyVoiceRecorder";
 import { normalizeVoiceInputDecibels, VOICE_WAVEFORM_SAMPLE_COUNT } from "./voiceInputMetering";
 import { VoiceInputSession } from "./voiceInputSession";
+
+import { readAloud, setVoiceInputActive } from "../read-aloud/readAloud";
 
 const INITIAL_STATE: VoiceInputState = { phase: "idle", error: null, errorAction: null };
 const VOICE_METERING_INTERVAL_MS = 80;
@@ -92,6 +101,10 @@ export function useGlobalVoiceInput() {
 }
 
 function useVoiceInputRuntime() {
+  const registry = use(RegistryContext);
+  // Dictation reads and records microphones without subscribing the provider to preferences.
+  useAtomMount(mobilePreferencesAtom);
+  useAtomMount(updateMobilePreferencesAtom);
   const [{ state, ownerKey, label }, setState] = useState({
     state: INITIAL_STATE,
     ownerKey: null as string | null,
@@ -127,6 +140,21 @@ function useVoiceInputRuntime() {
           url: status.url,
         });
       },
+      // Read when recording starts so preference changes do not re-render every composer.
+      selectInput: (inputs) => {
+        const preferences = registry.get(mobilePreferencesAtom);
+        if (!AsyncResult.isSuccess(preferences)) return null;
+        const known = microphoneOrder(preferences.value.microphones);
+        const order = rememberMicrophones(known, inputs);
+        if (order !== known) {
+          registry.set(updateMobilePreferencesAtom, {
+            transform: (current) => ({
+              microphones: rememberMicrophones(microphoneOrder(current.microphones), inputs),
+            }),
+          });
+        }
+        return preferredMicrophoneInput(inputs, order);
+      },
     });
     recorderRef.current = recorder;
     sessionRef.current = new VoiceInputSession({
@@ -140,8 +168,9 @@ function useVoiceInputRuntime() {
       releaseRecording: releaseVoiceRecordingAudio,
       deleteRecording: (uri) => new File(uri).delete(),
       onStateChange: (nextState) => {
-        if (nextState.phase === "preparing") readAloud.stop();
-        setVoiceInputActive(nextState.phase === "preparing" || nextState.phase === "recording");
+        const active = nextState.phase === "preparing" || nextState.phase === "recording";
+        if (active) readAloud.stop();
+        setVoiceInputActive(active);
         setState({
           state: nextState,
           ownerKey: sessionRef.current?.ownerKey ?? null,

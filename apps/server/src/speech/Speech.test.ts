@@ -19,13 +19,13 @@ import * as ProjectFaviconResolver from "../project/ProjectFaviconResolver.ts";
 import * as T3ProjectFileLoader from "../project/T3ProjectFileLoader.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import * as Speech from "./Speech.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as Speech from "./Speech.ts";
 import { retryAfterMs } from "./speechRequest.ts";
 
 const configLayer = ServerConfig.layerTest(process.cwd(), { prefix: "t3-speech-test-" });
 const baseLayer = Layer.mergeAll(
-  Layer.mock(Orchestrator.OrchestratorV2)({ getTurnItem: () => Effect.succeed(null) }),
+  Layer.mock(Orchestrator.OrchestratorV2)({}),
   configLayer,
   WorkspacePaths.layer,
   ProjectFaviconResolver.layer.pipe(

@@ -34,6 +34,7 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Hex from "effect/encoding/Hex";
+import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -45,7 +46,6 @@ import * as Semaphore from "effect/Semaphore";
 import { HttpClient } from "effect/http";
 
 import { issueAssetUrl, speechCacheKeyMimeType } from "../assets/AssetAccess.ts";
-import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { writeFileAtomically } from "../atomicWrite.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -158,6 +158,7 @@ export const make = Effect.gen(function* () {
   // Signing a URL reaches into the same services the asset route uses;
   // capturing them here keeps `synthesizeText` free of requirements.
   const assetContext = yield* Effect.context<
+    | Orchestrator.OrchestratorV2
     | ServerConfig.ServerConfig
     | FileSystem.FileSystem
     | Path.Path
@@ -166,7 +167,6 @@ export const make = Effect.gen(function* () {
     | ServerSecretStore.ServerSecretStore
     | WorkspacePaths.WorkspacePaths
     | ProjectFaviconResolver.ProjectFaviconResolver
-    | Orchestrator.OrchestratorV2
   >();
 
   const cacheError = (cause: unknown) => new SpeechCacheError({ cause });
