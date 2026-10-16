@@ -51,6 +51,21 @@ describe("diffFileTreeEntries", () => {
   });
 });
 
+describe("diffFileTreeEntries", () => {
+  it("drops a file whose path became a directory in the same diff", () => {
+    const entries = diffFileTreeEntries([
+      file("deleted", "skills/react-composition"),
+      file("new", "skills/react-composition/SKILL.md"),
+      file("new", "skills/other.md"),
+    ]);
+    expect(entries).toEqual([
+      { path: "skills/react-composition/SKILL.md", status: "added" },
+      { path: "skills/other.md", status: "added" },
+    ]);
+    expect(() => preloadFileTree({ paths: entries.map((entry) => entry.path) })).not.toThrow();
+  });
+});
+
 describe("collectDirectoryPaths", () => {
   it("lists every ancestor once, parents first, with Pierre's trailing slash", () => {
     expect(collectDirectoryPaths(["apps/web/src/a.ts", "apps/web/b.ts", "README.md"])).toEqual([

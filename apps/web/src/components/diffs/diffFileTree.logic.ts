@@ -27,6 +27,9 @@ function toGitStatus(file: FileDiffMetadata): GitStatus {
  * Maps parsed diff files to tree entries, keeping the diff's own order. A path
  * appears once: a type change (regular file to symlink) is a deletion plus an
  * addition of the same path, and the tree shows the surviving file as modified.
+ *
+ * A file whose path is also a directory in the same diff (a file or symlink replaced by a
+ * folder) is left out: the tree cannot hold both, and the folder's files carry the change.
  */
 export function diffFileTreeEntries(
   files: ReadonlyArray<FileDiffMetadata>,
@@ -38,7 +41,10 @@ export function diffFileTreeEntries(
     const previous = statusByPath.get(path);
     statusByPath.set(path, previous === undefined || previous === status ? status : "modified");
   }
-  return [...statusByPath].map(([path, status]) => ({ path, status }));
+  const directories = new Set(collectDirectoryPaths([...statusByPath.keys()]));
+  return [...statusByPath]
+    .filter(([path]) => !directories.has(`${path}/`))
+    .map(([path, status]) => ({ path, status }));
 }
 
 /**
