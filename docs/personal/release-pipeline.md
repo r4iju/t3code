@@ -74,6 +74,10 @@ scripts/personal/t3-alpha-deploy release/T3-Code-0.0.47-arm64.zip
   signed build tags its commit `desktop-v<version>` on origin. Every package.json is set to
   the version for the build and restored afterwards, so the app and its server report the
   same version.
+- **Forward along main only:** the build refuses a commit that is not on `origin/main` or does
+  not contain the latest `desktop-v*` tag. A Mac's database keeps the migrations of the newest
+  build it ran, so an older build rejects its sessions and tokens. Merge a branch before
+  shipping it, including an upstream rebase; the nightly builds `main` and would undo it.
 - **Signing:** the build is signed with the Apple Development certificate in studio's keychain.
   macOS privacy grants (Screen Recording, Accessibility, …), keychain access and Little Snitch
   rules are tied to that signature, so they carry over between builds. An unsigned build is a

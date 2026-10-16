@@ -21,7 +21,20 @@ set -euo pipefail
 SIGN_IDENTITY="${T3_ALPHA_SIGN_IDENTITY:-Apple Development: Emanuel Franzen (T4J48V44Q2)}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
-git fetch -q origin 'refs/tags/desktop-v*:refs/tags/desktop-v*'
+git fetch -q origin main 'refs/tags/desktop-v*:refs/tags/desktop-v*'
+# Every Mac's database carries the migrations of the newest build it ran, and a
+# build that predates them cannot read its state or sessions. Releases therefore
+# move forward along main only: a build from an unmerged branch is followed by a
+# nightly from main that silently drops it.
+if ! git merge-base --is-ancestor HEAD origin/main; then
+  echo "error: HEAD ($(git rev-parse --short HEAD)) is not on origin/main; merge it before building a release." >&2
+  exit 1
+fi
+LATEST_TAG="$(git tag -l 'desktop-v*' --sort=-v:refname | head -1)"
+if [[ -n "$LATEST_TAG" ]] && ! git merge-base --is-ancestor "$LATEST_TAG" HEAD; then
+  echo "error: HEAD does not contain $LATEST_TAG ($(git rev-parse --short "$LATEST_TAG^{}")); building it would downgrade every Mac." >&2
+  exit 1
+fi
 if [[ -n "${1:-}" ]]; then
   VERSION="$1"
 else
