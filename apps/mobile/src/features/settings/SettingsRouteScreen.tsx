@@ -1,4 +1,5 @@
-import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { Toolbar } from "../../components/ui/Toolbar";
+import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useAtomValue } from "@effect/atom-react";
 import { useAuth, useUser } from "@clerk/expo";
 import { useNavigation } from "@react-navigation/native";
@@ -10,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { hasCloudPublicConfig } from "../cloud/publicConfig";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
-import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { mobilePreferencesAtom } from "../../state/preferences";
 import { useSavedRemoteConnections } from "../../state/use-remote-environment-registry";
 import { SettingsRow } from "./components/SettingsRow";
@@ -38,13 +39,13 @@ export function SettingsRouteScreen() {
       ) : null}
       {Platform.OS === "ios" && layout.usesSplitView ? (
         <>
-          <NativeHeaderToolbar placement="left">
-            <NativeHeaderToolbar.Button
+          <Toolbar placement="left">
+            <Toolbar.Button
               accessibilityLabel="Go back"
               icon="chevron.left"
               onPress={() => navigation.goBack()}
             />
-          </NativeHeaderToolbar>
+          </Toolbar>
         </>
       ) : null}
       <SettingsEnvironmentFilterHeader closeSettings />
