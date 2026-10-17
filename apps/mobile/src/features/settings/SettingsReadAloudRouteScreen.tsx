@@ -9,9 +9,9 @@ import { AsyncResult } from "effect/reactivity";
 import { Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { AppText as Text } from "../../components/AppText";
-import { SymbolView } from "../../components/AppSymbol";
+import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppText as Text } from "../../components/ui/AppText";
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/preferences";
 import { SettingsSection } from "./components/SettingsSection";

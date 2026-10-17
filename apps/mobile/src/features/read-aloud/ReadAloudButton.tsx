@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { memo, useCallback, useMemo } from "react";
 import { ActivityIndicator, type ColorValue, Pressable } from "react-native";
 
-import { SymbolView } from "../../components/AppSymbol";
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { readAloud, useReadAloudSelector, useSpeechConfigured } from "./readAloud";
 import {
   resolveReadAloudButtonPhase,

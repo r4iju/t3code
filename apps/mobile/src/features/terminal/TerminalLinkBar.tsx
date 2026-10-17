@@ -1,8 +1,8 @@
 import { memo, useMemo } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 
-import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { extractTerminalBufferLinks, terminalLinkLabel } from "./terminalBufferLinks";
