@@ -18,7 +18,7 @@ import { useState } from "react";
 import {
   useClientSettings,
   usePrimarySettings,
-  useUpdateClientSettings,
+  updateClientSettings,
   useUpdatePrimarySettings,
 } from "../../hooks/useSettings";
 import { usePrimaryEnvironmentId } from "../../state/environments";
@@ -367,7 +367,6 @@ function ReadAloudForm({
 /** Per-device: playback speed lives in client settings, not on the environment. */
 function ReadAloudSpeedRow() {
   const rate = useClientSettings((settings) => settings.readAloudPlaybackRate);
-  const updateClientSettings = useUpdateClientSettings();
 
   return (
     <SettingsRow
