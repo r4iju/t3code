@@ -3,7 +3,6 @@ import { ConnectionTraceId } from "./ConnectionTraceId";
 import { useAuth } from "@clerk/expo";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import {
-  connectionStatusText,
   type ConnectionBlockedReason,
   type EnvironmentConnectionPhase,
 } from "@t3tools/client-runtime/connection";
@@ -196,9 +195,9 @@ function ConnectedCloudEnvironmentRow(props: {
   }
   return (
     <CloudEnvironmentRowShell
+      opensDetails={props.onOpen !== undefined}
       onOpen={props.onOpen}
       onRemove={props.onRemove}
-      opensDetails={props.onOpen !== undefined}
       connectionError={enabled || unsupported ? props.environment.connectionError : null}
       connectionErrorTraceId={enabled ? props.environment.connectionErrorTraceId : null}
       connectionBlockedReason={enabled ? props.environment.connectionBlockedReason : null}
@@ -259,10 +258,10 @@ function CloudEnvironmentRow(props: {
 }
 
 function CloudEnvironmentRowShell(props: {
-  readonly onOpen?: (() => void) | undefined;
-  readonly onRemove?: (() => void) | undefined;
   readonly showChevron?: boolean;
   readonly opensDetails?: boolean;
+  readonly onOpen?: (() => void) | undefined;
+  readonly onRemove?: (() => void) | undefined;
   readonly connectionError: string | null;
   readonly connectionErrorTraceId: string | null;
   readonly connectionBlockedReason: ConnectionBlockedReason | null;
@@ -302,6 +301,8 @@ function CloudEnvironmentRowShell(props: {
   const errorCanExpand = props.connectionError !== null && errorLineCount > 1;
   const isErrorExpanded = errorCanExpand && props.errorExpanded;
   const StatusContainer = errorCanExpand ? Pressable : View;
+  const ContentContainer = props.onOpen || props.onRemove ? Pressable : View;
+  const ChevronContainer = props.onOpen || props.onRemove ? Pressable : View;
   const onMeasuredErrorTextLayout = useCallback(
     (event: TextLayoutEvent) => {
       if (!props.connectionError) {
@@ -319,88 +320,111 @@ function CloudEnvironmentRowShell(props: {
   );
   return (
     <View collapsable={false} className="flex-row items-center gap-3 bg-grouped-card px-4 py-3.5">
-      <Pressable
-        className="min-w-0 flex-1 flex-row items-center gap-3"
+      <ContentContainer
+        className="min-w-0 flex-1 gap-0.5"
         accessibilityHint={props.onRemove ? "Long press to remove from this device" : undefined}
         accessibilityRole={props.onOpen ? "button" : undefined}
-        accessibilityLabel={props.onOpen ? `Manage ${props.label}` : undefined}
+        accessibilityLabel={
+          props.onOpen
+            ? `Manage ${props.label}`
+            : props.onRemove
+              ? `Remove ${props.label} from this device`
+              : undefined
+        }
         onPress={props.onOpen}
         onLongPress={props.onRemove}
       >
-        <View className="min-w-0 flex-1 gap-0.5">
-          <View className="min-w-0 flex-row items-center gap-2">
-            <ConnectionStatusDot state={props.connectionState} pulse={shouldPulse} size={7} />
-            <EnvironmentMachineSymbol
-              kind={props.machine}
-              size={14}
-              tintColorClassName="accent-foreground-muted"
-            />
-            <Text
-              className="min-w-0 flex-shrink text-base font-t3-bold leading-snug text-foreground"
-              numberOfLines={1}
-            >
-              {props.label}
-            </Text>
-          </View>
-          {props.connectionError ? (
-            <Text
-              aria-hidden
-              onTextLayout={onMeasuredErrorTextLayout}
-              className={cn("absolute inset-x-0 -z-[1] text-xs opacity-0", statusClassName)}
-            >
-              {measuredErrorText}
-            </Text>
-          ) : null}
-          <StatusContainer
-            {...(errorCanExpand
-              ? { accessibilityRole: "button" as const, onPress: props.onToggleError }
-              : {})}
-            className="min-w-0 flex-row items-start gap-1"
+        <View className="min-w-0 flex-row items-center gap-2">
+          <ConnectionStatusDot state={props.connectionState} pulse={shouldPulse} size={7} />
+          <EnvironmentMachineSymbol
+            kind={props.machine}
+            size={14}
+            tintColorClassName="accent-foreground-muted"
+          />
+          <Text
+            className="min-w-0 flex-shrink text-base font-t3-bold leading-snug text-foreground"
+            numberOfLines={1}
           >
-            <Text
-              className={cn("min-w-0 flex-1 text-xs", statusClassName)}
-              numberOfLines={isErrorExpanded ? undefined : 1}
-            >
-              {statusText}
-              {errorTraceId ? (
-                <ConnectionTraceId
-                  traceId={errorTraceId}
-                  tone={
-                    props.connectionError && props.connectionState !== "unsupported"
-                      ? "danger"
-                      : "muted"
-                  }
-                  activation="longPress"
-                />
-              ) : null}
-            </Text>
-            {errorCanExpand ? (
-              <SymbolView
-                name="chevron.down"
-                size={10}
-                tintColorClassName={"accent-chevron"}
-                type="monochrome"
-                style={{
-                  marginTop: 3,
-                  transform: [{ rotate: isErrorExpanded ? "180deg" : "0deg" }],
-                }}
+            {props.label}
+          </Text>
+        </View>
+        {props.connectionError ? (
+          <Text
+            aria-hidden
+            onTextLayout={onMeasuredErrorTextLayout}
+            className={cn("absolute inset-x-0 -z-[1] text-xs opacity-0", statusClassName)}
+          >
+            {measuredErrorText}
+          </Text>
+        ) : null}
+        <StatusContainer
+          {...(errorCanExpand
+            ? { accessibilityRole: "button" as const, onPress: props.onToggleError }
+            : {})}
+          className="min-w-0 flex-row items-start gap-1"
+        >
+          <Text
+            className={cn("min-w-0 flex-1 text-xs", statusClassName)}
+            numberOfLines={isErrorExpanded ? undefined : 1}
+          >
+            {statusText}
+            {errorTraceId ? (
+              <ConnectionTraceId
+                traceId={errorTraceId}
+                tone={
+                  props.connectionError && props.connectionState !== "unsupported"
+                    ? "danger"
+                    : "muted"
+                }
+                activation="longPress"
               />
             ) : null}
-          </StatusContainer>
-        </View>
-        {props.opensDetails || props.showChevron ? (
-          <View style={{ opacity: props.opensDetails ? 1 : 0.4 }}>
-            <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />
-          </View>
-        ) : null}
-      </Pressable>
+          </Text>
+          {errorCanExpand ? (
+            <SymbolView
+              name="chevron.down"
+              size={10}
+              tintColorClassName={"accent-chevron"}
+              type="monochrome"
+              style={{
+                marginTop: 3,
+                transform: [{ rotate: isErrorExpanded ? "180deg" : "0deg" }],
+              }}
+            />
+          ) : null}
+        </StatusContainer>
+      </ContentContainer>
       <ThemedSwitch
-        accessibilityLabel={`Connect to ${props.label}`}
+        accessibilityLabel={`Enable ${props.label}`}
         style={{ alignSelf: "center" }}
         disabled={props.disabled}
         onValueChange={props.onValueChange}
         value={props.value}
       />
+      {props.opensDetails || props.showChevron ? (
+        <ChevronContainer
+          accessibilityRole={props.onOpen ? "button" : undefined}
+          accessibilityLabel={
+            props.onOpen
+              ? `Manage ${props.label}`
+              : props.onRemove
+                ? `Remove ${props.label} from this device`
+                : undefined
+          }
+          accessibilityHint={props.onRemove ? "Long press to remove from this device" : undefined}
+          onPress={props.onOpen}
+          onLongPress={props.onRemove}
+          style={{
+            opacity: props.opensDetails ? 1 : 0.4,
+            minWidth: 44,
+            minHeight: 44,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <SymbolView name="chevron.right" size={12} tintColorClassName="accent-icon-subtle" />
+        </ChevronContainer>
+      ) : null}
     </View>
   );
 }
