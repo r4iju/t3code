@@ -26,6 +26,7 @@ import {
   ProviderTurnId,
   RunAttemptId,
   RunId,
+  type ServerProviderUsageLimits,
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
@@ -1963,6 +1964,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     onRequest: (method: string, params: unknown) => Effect.Effect<void> = () => Effect.void,
     readChildMetadata?: Parameters<typeof withCodexReplayChildMetadata>[2],
     autoRetryCapacityErrors = false,
+    usageLimits?: ServerProviderUsageLimits,
   ) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -2005,6 +2007,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         instanceId: CodexAdapterV2.CODEX_DEFAULT_INSTANCE_ID,
         settings: DEFAULT_CODEX_SETTINGS,
         autoRetryCapacityErrors: Effect.succeed(autoRetryCapacityErrors),
+        getUsageLimits: Effect.succeed(usageLimits),
         environment: {},
         clientFactory,
         crypto: yield* Crypto.Crypto,
@@ -6842,6 +6845,24 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       expectedClass: "provider_error",
     },
     {
+      name: "cached-invalid-reset",
+      code: "usageLimitExceeded",
+      notification: false,
+      expectedClass: "usage_limit",
+    },
+    {
+      name: "cached-stale-session",
+      code: "usageLimitExceeded",
+      notification: false,
+      expectedClass: "usage_limit",
+    },
+    {
+      name: "cached-reset",
+      code: "usageLimitExceeded",
+      notification: false,
+      expectedClass: "usage_limit",
+    },
+    {
       name: "known-reset",
       code: "usageLimitExceeded",
       notification: false,
@@ -6892,6 +6913,22 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Continue." }),
             ...(scenario.name === "known-reset" || scenario.name === "deferred-reset"
               ? [snapshot]
+              : []),
+            ...(scenario.name === "cached-stale-session"
+              ? [
+                  {
+                    ...snapshot,
+                    frame: {
+                      method: "account/rateLimits/updated",
+                      params: {
+                        rateLimits: {
+                          limitId: "codex",
+                          primary: { usedPercent: 50, resetsAt: 2000100000 },
+                        },
+                      },
+                    },
+                  },
+                ]
               : []),
             ...(scenario.name === "deferred-reset"
               ? [
@@ -7010,12 +7047,34 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ],
         });
         const resetReceipt = yield* Deferred.make<void>();
-        const harness = yield* makeCodexReplayHarness(transcript, (event) =>
-          event.type === "turn_item.updated" &&
-          event.turnItem.type === "error" &&
-          event.turnItem.failure.resetAt === resetAt
-            ? Deferred.succeed(resetReceipt, undefined)
-            : Effect.void,
+        const harness = yield* makeCodexReplayHarness(
+          transcript,
+          (event) =>
+            event.type === "turn_item.updated" &&
+            event.turnItem.type === "error" &&
+            event.turnItem.failure.resetAt === resetAt
+              ? Deferred.succeed(resetReceipt, undefined)
+              : Effect.void,
+          undefined,
+          undefined,
+          false,
+          scenario.name === "cached-reset" ||
+            scenario.name === "cached-stale-session" ||
+            scenario.name === "cached-invalid-reset"
+            ? {
+                checkedAt: "2033-05-19T05:00:00.000Z",
+                windows: [
+                  {
+                    id: "primary",
+                    kind: "session",
+                    label: "Session",
+                    usedPercent: 100,
+                    resetsAt: scenario.name === "cached-invalid-reset" ? "invalid" : resetAt,
+                    windowDurationMins: 300,
+                  },
+                ],
+              }
+            : undefined,
         );
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
@@ -7032,8 +7091,14 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         if (terminal?.status !== "failed") return;
         assert.equal(terminal.failure.class, scenario.expectedClass);
         assert.equal(terminal.threadDisposition, "reusable");
-        if (scenario.name === "known-reset" || scenario.name === "deferred-reset")
+        if (
+          scenario.name === "known-reset" ||
+          scenario.name === "deferred-reset" ||
+          scenario.name === "cached-reset" ||
+          scenario.name === "cached-stale-session"
+        )
           assert.equal(terminal.failure.resetAt, resetAt);
+        if (scenario.name === "cached-invalid-reset") assert.isNull(terminal.failure.resetAt);
         if (scenario.name === "matching-details")
           assert.equal(terminal.failure.message, "Detailed provider allowance explanation.");
         if (scenario.name === "late-reset") {
