@@ -213,10 +213,21 @@ export function codexUsageLimitMessage(
 /** All exhausted windows must reset before a continuation can run. */
 export function codexUsageLimitResetAt(
   snapshot: CodexRateLimitSnapshot | undefined,
+  knownLimits?: ServerProviderUsageLimits,
 ): string | null {
-  if (!snapshot) return null;
-  const windows = codexRateLimitsToWindows(snapshot).filter((window) => window.usedPercent >= 100);
-  if (windows.length === 0 || windows.some((window) => !window.resetsAt)) return null;
+  // The provider snapshot also includes probes and other sessions' updates.
+  const windows = (
+    knownLimits && !knownLimits.unavailable
+      ? knownLimits.windows
+      : snapshot
+        ? codexRateLimitsToWindows(snapshot)
+        : []
+  ).filter((window) => window.usedPercent >= 100);
+  if (
+    windows.length === 0 ||
+    windows.some((window) => !window.resetsAt || !Number.isFinite(Date.parse(window.resetsAt)))
+  )
+    return null;
   return windows.reduce<string | null>(
     (latest, window) =>
       latest === null || Date.parse(window.resetsAt!) > Date.parse(latest)

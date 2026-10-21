@@ -178,6 +178,9 @@ export const CodexDriver: ProviderDriver<CodexSettings, CodexDriverEnv, Path.Pat
         },
         {
           onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+          getUsageLimits: Effect.suspend(() =>
+            snapshot.getSnapshot.pipe(Effect.map((provider) => provider.usageLimits)),
+          ),
           autoRetryCapacityErrors: host.settings.get.pipe(
             Effect.map((settings) => settings.autoRetryCapacityErrors),
             Effect.orElseSucceed(() => false),
